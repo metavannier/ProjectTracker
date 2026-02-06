@@ -619,13 +619,52 @@
 
             // Save on the serveur
             async function saveData() {
-            await fetch("/api/projects", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(projects),
-            });
-            showNotification("Data saved on server!");
-            renderCharts();
+                await fetch("/api/projects", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(projects),
+                });
+                showNotification("Data saved on server!");
+                renderCharts();
+            }
+
+            // Delete project
+            async function deleteProject(projectId) {
+                if (confirm('Are you sure you want to delete this project?')) {
+                    // Find the project first (to get its title for filename)
+                    const projectToDelete = projects.find(p => p.id == projectId);
+                    
+                    // Delete from local array
+                    projects = projects.filter(p => p.id != projectId);
+                    
+                    // Save updated projects (main file)
+                    await saveData();
+                    
+                    // Also call delete endpoint for individual file
+                    try {
+                        await fetch(`/api/project/${projectId}`, {
+                            method: 'DELETE'
+                        });
+                    } catch (err) {
+                        console.error('Error deleting individual project file:', err);
+                    }
+                    
+                    renderProjects();
+                    showNotification('Project deleted!');
+                }
+            }
+
+            // New function to save individual project
+            async function saveIndividualProject(project) {
+                try {
+                    await fetch(`/api/project/${project.id}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(project),
+                    });
+                } catch (err) {
+                    console.error("Error saving individual project:", err);
+                }
             }
             
             // Export data as JSON
@@ -972,7 +1011,9 @@
                         projects[projectIndex].totalHours = formatTime(totalSeconds);
                         projects[projectIndex].lastUpdate = new Date().toLocaleDateString('en-GB');
                         
+                        // Save main file AND individual file
                         saveData();
+                        saveIndividualProject(projects[projectIndex]);
                         renderProjects();
                         
                         showNotification('Time recorded successfully!');
@@ -986,7 +1027,7 @@
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
             }
-            
+
             // Open manual time modal
             function openManualTimeModal() {
                 if (!selectedRow) {
@@ -1012,7 +1053,9 @@
                     projects[projectIndex].totalHours = formatTime(manualTime);
                     projects[projectIndex].lastUpdate = new Date().toLocaleDateString('en-GB');
                     
+                    // Save main file AND individual file
                     saveData();
+                    saveIndividualProject(projects[projectIndex]);
                     renderProjects();
                     
                     showNotification('Manual time added successfully!');

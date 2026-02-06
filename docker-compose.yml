@@ -9,7 +9,8 @@ services:
     networks:
       - projectnet
     volumes:
-      - ./projects.json:/app/projects.json
+      - ./projects.json:/app/projects.json           # Main projects file
+      - ./project:/app/project                       # Individual project files
 
 networks:
   projectnet:
