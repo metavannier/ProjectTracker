@@ -73,6 +73,26 @@ app.get("/api/projects", (req, res) => {
     }
 });
 
+// Load projects from individual files (more up-to-date than projects.json)
+app.get("/api/projects", (req, res) => {
+    try {
+        const files = fs.readdirSync(PROJECT_DIR).filter(f => f.endsWith('.json'));
+        const projects = files.map(file => {
+            return JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, file), "utf-8"));
+        });
+        // Sort by ID for consistency
+        projects.sort((a, b) => a.id - b.id);
+        res.json(projects);
+    } catch (err) {
+        // Fallback to projects.json
+        if (fs.existsSync(DATA_FILE)) {
+            res.json(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
+        } else {
+            res.json([]);
+        }
+    }
+});
+
 // Save projects to the JSON file AND handle deletions
 app.post("/api/projects", (req, res) => {
     const newProjects = req.body;
@@ -103,6 +123,17 @@ app.post("/api/projects", (req, res) => {
     
     console.log(`Saved ${newProjects.length} projects, deleted ${deletedProjects.length} projects`);
     res.json({ status: "ok" });
+});
+
+// Save a single project file
+app.post("/api/project/:id", (req, res) => {
+    const project = req.body;
+    try {
+        saveIndividualProject(project);
+        res.json({ status: "ok" });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to save project" });
+    }
 });
 
 // Optional: Direct delete endpoint
