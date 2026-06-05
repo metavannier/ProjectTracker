@@ -70,15 +70,6 @@ function deleteIndividualProjectById(projectId) {
     }
 }
 
-// Load projects from the JSON file
-app.get("/api/projects", (req, res) => {
-    if (fs.existsSync(DATA_FILE)) {
-        res.json(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
-    } else {
-        res.json([]);
-    }
-});
-
 // Load projects from individual files (more up-to-date than projects.json)
 app.get("/api/projects", (req, res) => {
     try {
@@ -102,32 +93,21 @@ app.get("/api/projects", (req, res) => {
 // Save projects to the JSON file AND handle deletions
 app.post("/api/projects", (req, res) => {
     const newProjects = req.body;
-    
-    // Get current projects before saving
+
+    // Find and delete individual files for removed projects
     let oldProjects = [];
     if (fs.existsSync(DATA_FILE)) {
         oldProjects = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
     }
-    
-    // Find projects that were deleted (in old but not in new)
-    const deletedProjects = oldProjects.filter(oldProject => 
-        !newProjects.find(p => p.id === oldProject.id)
+    const deletedProjects = oldProjects.filter(old =>
+        !newProjects.find(p => p.id === old.id)
     );
-    
-    // Delete individual files for removed projects
-    deletedProjects.forEach(project => {
-        deleteIndividualProjectById(project.id);
-    });
-    
-    // Save main projects file
+    deletedProjects.forEach(project => deleteIndividualProjectById(project.id));
+
+    // Update projects.json for the list of IDs (NOT the time data)
     fs.writeFileSync(DATA_FILE, JSON.stringify(newProjects, null, 2));
-    
-    // Also save each remaining project individually
-    newProjects.forEach(project => {
-        saveIndividualProject(project);
-    });
-    
-    console.log(`Saved ${newProjects.length} projects, deleted ${deletedProjects.length} projects`);
+
+    // DO NOT call saveIndividualProject() here anymore
     res.json({ status: "ok" });
 });
 

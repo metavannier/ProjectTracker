@@ -918,6 +918,7 @@
                 
                 projects.push(newProject);
                 saveData();
+                saveIndividualProject(newProject);
                 renderProjects();
                 
                 // Clear form
@@ -936,7 +937,7 @@
                 if (projectIndex !== -1) {
                     projects[projectIndex].status = 'finished';
                     projects[projectIndex].endDate = new Date().toLocaleDateString('en-GB');
-                    saveData();
+                    saveIndividualProject(projects[projectIndex]);
                     renderProjects();
                     showNotification('Project marked as finished!');
                 }
@@ -949,7 +950,7 @@
                 if (projectIndex !== -1) {
                     projects[projectIndex].status = 'active';
                     projects[projectIndex].endDate = '';
-                    saveData();
+                    saveIndividualProject(projects[projectIndex]);
                     renderProjects();
                     showNotification('Project reopened!');
                 }
@@ -1012,7 +1013,6 @@
                         projects[projectIndex].lastUpdate = new Date().toLocaleDateString('en-GB');
                         
                         // Save main file AND individual file
-                        saveData();
                         saveIndividualProject(projects[projectIndex]);
                         renderProjects();
                         
@@ -1054,7 +1054,6 @@
                     projects[projectIndex].lastUpdate = new Date().toLocaleDateString('en-GB');
                     
                     // Save main file AND individual file
-                    saveData();
                     saveIndividualProject(projects[projectIndex]);
                     renderProjects();
                     
