@@ -3,7 +3,7 @@ version: "3.9"
 services:
   web:
     build: .
-    container_name: projecttracker_web_troll
+    container_name: projecttracker_web
     ports:
       - "4020:80"
     restart: unless-stopped
@@ -11,7 +11,7 @@ services:
       - projectnet
     volumes:
       - ./projects.json:/app/projects.json           # Main projects file
-      - ./project:/app/project    
+      - ./project:/app/project
     env_file:
       - password.env                   # Individual project files
 

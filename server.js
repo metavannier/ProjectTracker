@@ -54,10 +54,6 @@ function requireAuth(req, res, next) {
     res.redirect('/');
 }
 
-// Public files (login.html, CSS/JS assets for login...)
-// index: false to prevent automatic serving of index.html
-app.use(express.static(path.join(__dirname), { index: false }));
-
 // Redirect / to the login page
 app.get("/", (req, res) => {
     if (req.session && req.session.authenticated) {
@@ -65,6 +61,14 @@ app.get("/", (req, res) => {
     }
     res.sendFile(path.join(__dirname, "login.html"));
 });
+
+// index.html protected first before express.static
+app.get("/index.html", requireAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, "index.html"));
+});
+
+// index:false to not serve index.html automatically
+app.use(express.static(path.join(__dirname), {index:false}));
 
 // Route login — verifies the password and creates the session
 app.post("/api/auth", (req, res) => {
@@ -97,11 +101,6 @@ app.get("/logout", (req, res) => {
     req.session.destroy(() => {
         res.redirect('/');
     });
-});
-
-// index.html — protected, accessible only after login
-app.get("/index.html", requireAuth, (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"));
 });
 
 // ─── API Routes — all protected by requireAuth ───────────────────────────
@@ -165,7 +164,7 @@ app.get("/api/projects", requireAuth, (req, res) => {
         if (fs.existsSync(DATA_FILE)) {
             res.json(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
         } else {
-            res.json([]);
+            res.redirect('/');
         }
     }
 });
