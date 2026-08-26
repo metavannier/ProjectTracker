@@ -57,13 +57,23 @@ function requireAuth(req, res, next) {
 // Redirect / to the login page
 app.get("/", (req, res) => {
     if (req.session && req.session.authenticated) {
-        return res.redirect('/index.html');
+        return res.redirect("/index.html");
     }
+    res.set({
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    });
     res.sendFile(path.join(__dirname, "login.html"));
 });
 
 // index.html protected first before express.static
 app.get("/index.html", requireAuth, (req, res) => {
+    res.set({
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    });
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
