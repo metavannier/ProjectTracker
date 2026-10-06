@@ -141,8 +141,22 @@ function saveIndividualProject(project) {
 
         fs.writeFileSync(filePath, JSON.stringify(project, null, 2));
         console.log(`✓ Saved individual project: ${filename}`);
+
+        // The file name contains the title: after a rename, remove the file(s)
+        // with the old name, otherwise the project would be loaded twice
+        fs.readdirSync(PROJECT_DIR)
+            .filter(f => f.endsWith('.json') && f !== filename)
+            .filter(f => {
+                const match = f.match(/^(\d+)_/);
+                return match && parseInt(match[1]) === Number(project.id);
+            })
+            .forEach(f => {
+                fs.unlinkSync(path.join(PROJECT_DIR, f));
+                console.log(`✓ Removed previous file after rename: ${f}`);
+            });
     } catch (err) {
         console.error("Error saving individual project:", err);
+        throw err; // let the route answer 500 instead of a false "ok"
     }
 }
 

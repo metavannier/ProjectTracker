@@ -248,6 +248,208 @@
             background: #27ae60;
         }
         
+        .edit-btn {
+            background: #3498db;
+            color: white;
+        }
+        
+        .edit-btn:hover {
+            background: #2980b9;
+        }
+        
+        /* ── Searchable dropdown (Institute / Engineers / Researchers) ── */
+        .combo {
+            position: relative;
+        }
+        
+        .combo-field {
+            position: relative;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            min-height: 40px;
+            padding: 4px 30px 4px 6px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fff;
+            cursor: text;
+        }
+        
+        .combo-field::after {
+            content: '▾';
+            position: absolute;
+            right: 11px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #7f8c8d;
+            pointer-events: none;
+        }
+        
+        .combo-field:focus-within {
+            border-color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+        
+        .form-group .combo-field input {
+            flex: 1 1 120px;
+            min-width: 80px;
+            width: auto;
+            padding: 5px 4px;
+            border: none;
+            outline: none;
+            background: transparent;
+        }
+        
+        .combo-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 1px 2px 1px 8px;
+            background: #eaf4fc;
+            border: 1px solid #c9e2f5;
+            border-radius: 4px;
+            color: #2c3e50;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .form-group .combo-chip button {
+            width: auto;
+            margin: 0;
+            padding: 0 6px;
+            background: none;
+            color: #7f8c8d;
+            font-size: 15px;
+            line-height: 1.2;
+            border-radius: 3px;
+        }
+        
+        .form-group .combo-chip button:hover {
+            background: #d4e8f7;
+            color: #c0392b;
+        }
+        
+        .combo-list {
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            z-index: 50;
+            max-height: 240px;
+            overflow-y: auto;
+            margin: 0;
+            padding: 4px;
+            list-style: none;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+        }
+        
+        .combo.open .combo-list {
+            display: block;
+        }
+        
+        .combo-option {
+            padding: 7px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .combo-option mark {
+            background: none;
+            color: inherit;
+            font-weight: bold;
+        }
+        
+        .combo-option.active {
+            background: #3498db;
+            color: #fff;
+        }
+        
+        .combo-option.combo-new {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .combo-option.combo-new.active {
+            background: #2ecc71;
+            color: #fff;
+        }
+        
+        .combo-empty {
+            padding: 7px 10px;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        /* ── Edit project dialog ── */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 900;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 8vh 16px 16px;
+            overflow-y: auto;
+            background: rgba(44, 62, 80, 0.45);
+        }
+        
+        .modal-overlay[hidden] {
+            display: none;
+        }
+        
+        .modal {
+            width: 100%;
+            max-width: 560px;
+            padding: 20px 24px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        .modal h2 {
+            color: #2c3e50;
+            margin-bottom: 4px;
+        }
+        
+        .modal-note {
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #ecf0f1;
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .cancel-btn {
+            background: #ecf0f1;
+            color: #2c3e50;
+        }
+        
+        .cancel-btn:hover {
+            background: #dfe6e9;
+        }
+        
+        .save-edit-btn {
+            background: #2ecc71;
+            color: white;
+        }
+        
+        .save-edit-btn:hover {
+            background: #27ae60;
+        }
+        
         .project-table {
             width: 100%;
             border-collapse: collapse;
@@ -540,16 +742,16 @@
                     <input type="text" id="projectTitle" placeholder="Enter project title">
                 </div>
                 <div class="form-group">
-                    <label for="projectResearchers">Researchers (comma separated)</label>
-                    <input type="text" id="projectResearchers" placeholder="Enter researcher name">
+                    <label for="projectResearchers">Researchers</label>
+                    <input type="text" id="projectResearchers" placeholder="Search or add researchers">
                 </div>
                 <div class="form-group">
-                    <label for="projectEngineers">Assigned Engineers (comma separated)</label>
-                    <input type="text" id="projectEngineers" placeholder="Enter engineer(s) name(s)">
+                    <label for="projectEngineers">Assigned Engineers</label>
+                    <input type="text" id="projectEngineers" placeholder="Search or add engineers">
                 </div>
                 <div class="form-group">
                     <label for="projectInstitute">Institute</label>
-                    <input type="text" id="projectInstitute" placeholder="Enter institute">
+                    <input type="text" id="projectInstitute" placeholder="Search or add an institute">
                 </div>
                 <div class="form-group">
                     <label for="projectCategory">Category</label>
@@ -671,6 +873,37 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <div class="modal-overlay" id="editModal" hidden>
+        <form class="modal" id="editForm" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+            <h2 id="editModalTitle">Edit project</h2>
+            <p class="modal-note">Recorded time (<strong id="editProjectTime"></strong>) stays exactly as it is.</p>
+            <div class="form-group">
+                <label for="editTitle">Project Title</label>
+                <input type="text" id="editTitle">
+            </div>
+            <div class="form-group">
+                <label for="editResearchers">Researchers</label>
+                <input type="text" id="editResearchers" placeholder="Search or add researchers">
+            </div>
+            <div class="form-group">
+                <label for="editEngineers">Assigned Engineers</label>
+                <input type="text" id="editEngineers" placeholder="Search or add engineers">
+            </div>
+            <div class="form-group">
+                <label for="editInstitute">Institute</label>
+                <input type="text" id="editInstitute" placeholder="Search or add an institute">
+            </div>
+            <div class="form-group">
+                <label for="editCategory">Category</label>
+                <select id="editCategory"></select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="cancel-btn" id="editCancelBtn">Cancel</button>
+                <button type="submit" class="save-edit-btn">Save changes</button>
+            </div>
+        </form>
     </div>
 
     <div class="notification" id="notification">
@@ -953,12 +1186,14 @@
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(project),
                     });
+                    return true;
                 } catch (err) {
                     console.error("Error saving individual project:", err);
                     rememberUnsynced();
                     if (err.message !== 'SESSION_EXPIRED') {
                         showNotification('Save failed: ' + err.message, 'error');
                     }
+                    return false;
                 }
             }
             
@@ -1171,6 +1406,7 @@
                         <td class="time-cell" id="time-${project.id}">${project.totalHours}</td>
                         <td>${project.lastUpdate}</td>
                         <td>
+                            <button class="edit-btn" data-id="${project.id}" title="Edit project details">✎ Edit</button>
                             <button class="move-btn" data-id="${project.id}">Finish</button>
                             <button class="delete-btn" data-id="${project.id}">Delete</button>
                         </td>
@@ -1192,6 +1428,9 @@
                         }
                         updateMultiSelectBar();
                     });
+                    
+                    // Edit button
+                    row.querySelector('.edit-btn').addEventListener('click', () => openEditModal(project.id));
                     
                     // Move button
                     const moveBtn = row.querySelector('.move-btn');
@@ -1251,6 +1490,7 @@
                         <td>${project.endDate}</td>
                         <td>${project.totalHours}</td>
                         <td>
+                            <button class="edit-btn" data-id="${project.id}" title="Edit project details">✎ Edit</button>
                             <button class="reopen-btn" data-id="${project.id}">Reopen</button>
                             <button class="delete-btn" data-id="${project.id}">Delete</button>
                         </td>
@@ -1269,6 +1509,8 @@
                         }
                         updateMultiSelectBarFinished();
                     });
+                    
+                    row.querySelector('.edit-btn').addEventListener('click', () => openEditModal(project.id));
                     
                     const reopenBtn = row.querySelector('.reopen-btn');
                     reopenBtn.addEventListener('click', function() {
@@ -1485,14 +1727,14 @@
             
             // Add a new project
             function addProject() {
-                const title = document.getElementById('projectTitle').value;
-                const researchers = document.getElementById('projectResearchers').value.split(',').map(r => r.trim());
-                const engineers = document.getElementById('projectEngineers').value.split(',').map(e => e.trim());
-                const institute = document.getElementById('projectInstitute').value;
+                const title = document.getElementById('projectTitle').value.trim();
+                const researchers = newResearchers.getValue();
+                const engineers = newEngineers.getValue();
+                const institute = newInstitute.getValue();
                 const category = document.getElementById('projectCategory').value;
                 
                 if (!title || researchers.length === 0 || !institute) {
-                    showNotification('Please fill all required fields', 'error');
+                    showNotification('Please fill in the title, at least one researcher and the institute', 'error');
                     return;
                 }
                 
@@ -1518,9 +1760,9 @@
                 
                 // Clear form
                 document.getElementById('projectTitle').value = '';
-                document.getElementById('projectResearchers').value = '';
-                document.getElementById('projectEngineers').value = '';
-                document.getElementById('projectInstitute').value = '';
+                newResearchers.clear();
+                newEngineers.clear();
+                newInstitute.clear();
                 
                 showNotification('Project added successfully!');
             }
@@ -1711,6 +1953,341 @@
                 }, 3000);
             }
             
+            // ─── Searchable dropdowns ───────────────────────────────────────
+
+            // Values already used in projects (active and finished), one entry per value.
+            // Matching ignores case and extra spaces; the most used spelling is kept.
+            function existingValues(getter) {
+                const groups = new Map();
+                projects.forEach(p => {
+                    [].concat(getter(p) ?? []).forEach(raw => {
+                        const v = String(raw).trim().replace(/\s+/g, ' ');
+                        if (!v) return;
+                        const key = v.toLowerCase();
+                        if (!groups.has(key)) groups.set(key, new Map());
+                        const spellings = groups.get(key);
+                        spellings.set(v, (spellings.get(v) || 0) + 1);
+                    });
+                });
+                return [...groups.values()]
+                    .map(spellings => [...spellings.entries()].sort((a, b) => b[1] - a[1])[0][0])
+                    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            }
+
+            let comboCount = 0;
+
+            // Turns a plain <input> into a searchable dropdown.
+            // multiple: true → several values shown as removable tags
+            function createCombo(input, { multiple = false, getOptions, noun }) {
+                const wrap = document.createElement('div');
+                const field = document.createElement('div');
+                const list = document.createElement('ul');
+                wrap.className = 'combo';
+                field.className = 'combo-field';
+                list.className = 'combo-list';
+                list.id = `combo-list-${++comboCount}`;
+                list.setAttribute('role', 'listbox');
+
+                input.parentNode.insertBefore(wrap, input);
+                field.appendChild(input);
+                wrap.append(field, list);
+
+                const placeholder = input.placeholder;
+                input.autocomplete = 'off';
+                input.setAttribute('role', 'combobox');
+                input.setAttribute('aria-autocomplete', 'list');
+                input.setAttribute('aria-controls', list.id);
+                input.setAttribute('aria-expanded', 'false');
+
+                let values = [];      // selected values (multiple mode)
+                let items = [];       // entries currently shown in the list
+                let active = -1;
+                let filtering = false; // false right after focus: show every option
+
+                const clean = v => String(v ?? '').trim().replace(/\s+/g, ' ');
+
+                // Snap typed text onto an existing spelling: "inmed" → "INMED"
+                function canonical(v) {
+                    const t = clean(v);
+                    if (!t) return '';
+                    return getOptions().find(o => o.toLowerCase() === t.toLowerCase()) || t;
+                }
+
+                function renderChips() {
+                    field.querySelectorAll('.combo-chip').forEach(c => c.remove());
+                    values.forEach((v, i) => {
+                        const chip = document.createElement('span');
+                        const remove = document.createElement('button');
+                        chip.className = 'combo-chip';
+                        chip.textContent = v;
+                        remove.type = 'button';
+                        remove.tabIndex = -1;
+                        remove.textContent = '×';
+                        remove.title = `Remove ${v}`;
+                        remove.setAttribute('aria-label', `Remove ${v}`);
+                        remove.addEventListener('mousedown', e => e.preventDefault());
+                        remove.addEventListener('click', () => {
+                            values.splice(i, 1);
+                            renderChips();
+                            input.focus();
+                            if (wrap.classList.contains('open')) refresh();
+                        });
+                        chip.appendChild(remove);
+                        field.insertBefore(chip, input);
+                    });
+                    input.placeholder = values.length ? '' : placeholder;
+                }
+
+                function addValue(v) {
+                    const c = canonical(v);
+                    if (multiple) {
+                        if (c && !values.some(x => x.toLowerCase() === c.toLowerCase())) values.push(c);
+                        input.value = '';
+                        renderChips();
+                    } else {
+                        input.value = c;
+                    }
+                }
+
+                function highlight(text, q) {
+                    const frag = document.createDocumentFragment();
+                    const i = q ? text.toLowerCase().indexOf(q) : -1;
+                    if (i < 0) { frag.append(text); return frag; }
+                    const mark = document.createElement('mark');
+                    mark.textContent = text.slice(i, i + q.length);
+                    frag.append(text.slice(0, i), mark, text.slice(i + q.length));
+                    return frag;
+                }
+
+                function refresh() {
+                    const typed = filtering ? clean(input.value) : '';
+                    const q = typed.toLowerCase();
+                    const taken = multiple ? values.map(v => v.toLowerCase()) : [];
+                    const options = getOptions();
+
+                    items = options
+                        .filter(o => !taken.includes(o.toLowerCase()) && o.toLowerCase().includes(q))
+                        .sort((a, b) => b.toLowerCase().startsWith(q) - a.toLowerCase().startsWith(q))
+                        .map(o => ({ value: o }));
+                    const exists = options.some(o => o.toLowerCase() === q) || taken.includes(q);
+                    if (typed && !exists) items.push({ value: typed, isNew: true });
+
+                    list.innerHTML = '';
+                    if (!items.length) {
+                        const li = document.createElement('li');
+                        li.className = 'combo-empty';
+                        li.textContent = typed ? `"${typed}" is already added` : `Type a name to add a new ${noun}`;
+                        list.appendChild(li);
+                    }
+                    items.forEach((item, i) => {
+                        const li = document.createElement('li');
+                        li.id = `${list.id}-opt-${i}`;
+                        li.className = 'combo-option' + (item.isNew ? ' combo-new' : '');
+                        li.setAttribute('role', 'option');
+                        if (item.isNew) li.textContent = `+ Add "${item.value}" as a new ${noun}`;
+                        else li.appendChild(highlight(item.value, q));
+                        li.addEventListener('mousedown', e => { e.preventDefault(); choose(i); });
+                        list.appendChild(li);
+                    });
+
+                    wrap.classList.add('open');
+                    input.setAttribute('aria-expanded', 'true');
+                    if (filtering && typed) setActive(items.length ? 0 : -1);
+                    else setActive(multiple ? -1 : items.findIndex(it => it.value.toLowerCase() === clean(input.value).toLowerCase()));
+                }
+
+                function setActive(i) {
+                    active = i;
+                    list.querySelectorAll('.combo-option').forEach((li, j) => {
+                        li.classList.toggle('active', j === i);
+                        li.setAttribute('aria-selected', String(j === i));
+                    });
+                    const el = list.querySelector('.combo-option.active');
+                    if (el) {
+                        el.scrollIntoView({ block: 'nearest' });
+                        input.setAttribute('aria-activedescendant', el.id);
+                    } else {
+                        input.removeAttribute('aria-activedescendant');
+                    }
+                }
+
+                function close() {
+                    wrap.classList.remove('open');
+                    input.setAttribute('aria-expanded', 'false');
+                    input.removeAttribute('aria-activedescendant');
+                    active = -1;
+                }
+
+                function choose(i) {
+                    const item = items[i];
+                    if (!item) return;
+                    addValue(item.value);
+                    filtering = false;
+                    if (multiple) refresh(); else close();
+                }
+
+                input.addEventListener('focus', () => {
+                    filtering = false;
+                    if (!multiple) input.select();
+                    refresh();
+                });
+
+                input.addEventListener('input', () => {
+                    // Typing or pasting "Alice, Bob" still works: commas create tags
+                    if (multiple && input.value.includes(',')) {
+                        const parts = input.value.split(',');
+                        const rest = parts.pop();
+                        parts.forEach(addValue);
+                        input.value = rest.trimStart();
+                    }
+                    filtering = true;
+                    refresh();
+                });
+
+                input.addEventListener('keydown', e => {
+                    const isOpen = wrap.classList.contains('open');
+                    const n = items.length;
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        if (!isOpen) refresh();
+                        else if (n) setActive(active >= n - 1 ? 0 : active + 1);
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        if (isOpen && n) setActive(active <= 0 ? n - 1 : active - 1);
+                    } else if (e.key === 'Enter') {
+                        if (isOpen && active >= 0) { e.preventDefault(); choose(active); }
+                    } else if (e.key === 'Escape') {
+                        if (isOpen) { e.preventDefault(); e.stopPropagation(); close(); }
+                    } else if (e.key === 'Backspace' && multiple && !input.value && values.length) {
+                        values.pop();
+                        renderChips();
+                        refresh();
+                    }
+                });
+
+                // Leaving the field keeps what was typed, matched to an existing spelling
+                input.addEventListener('blur', () => {
+                    close();
+                    if (multiple) {
+                        if (clean(input.value)) addValue(input.value);
+                        input.value = '';
+                    } else {
+                        input.value = canonical(input.value);
+                    }
+                });
+
+                // Clicking the empty part of the field opens / closes the list
+                field.addEventListener('mousedown', e => {
+                    if (e.target !== field) return;
+                    e.preventDefault();
+                    if (document.activeElement !== input) input.focus();
+                    else if (wrap.classList.contains('open')) close();
+                    else { filtering = false; refresh(); }
+                });
+
+                renderChips();
+
+                return {
+                    getValue() {
+                        if (!multiple) return canonical(input.value);
+                        if (clean(input.value)) addValue(input.value);
+                        return [...values];
+                    },
+                    setValue(v) {
+                        if (multiple) {
+                            values = [];
+                            [].concat(v ?? []).forEach(addValue);
+                            input.value = '';
+                            renderChips();
+                        } else {
+                            input.value = canonical(v);
+                        }
+                    },
+                    clear() {
+                        this.setValue(multiple ? [] : '');
+                    }
+                };
+            }
+
+            const researcherOptions = () => existingValues(p => p.researchers);
+            const engineerOptions   = () => existingValues(p => p.engineers);
+            const instituteOptions  = () => existingValues(p => p.institute);
+
+            // New project form
+            const newResearchers = createCombo(document.getElementById('projectResearchers'), { multiple: true, getOptions: researcherOptions, noun: 'researcher' });
+            const newEngineers   = createCombo(document.getElementById('projectEngineers'),   { multiple: true, getOptions: engineerOptions,   noun: 'engineer' });
+            const newInstitute   = createCombo(document.getElementById('projectInstitute'),   { getOptions: instituteOptions, noun: 'institute' });
+
+            // ─── Edit project dialog ───────────────────────────────────────
+            const editModal = document.getElementById('editModal');
+            const editForm = document.getElementById('editForm');
+            const editTitleInput = document.getElementById('editTitle');
+            const editCategorySelect = document.getElementById('editCategory');
+            const editResearchers = createCombo(document.getElementById('editResearchers'), { multiple: true, getOptions: researcherOptions, noun: 'researcher' });
+            const editEngineers   = createCombo(document.getElementById('editEngineers'),   { multiple: true, getOptions: engineerOptions,   noun: 'engineer' });
+            const editInstitute   = createCombo(document.getElementById('editInstitute'),   { getOptions: instituteOptions, noun: 'institute' });
+            let editingProjectId = null;
+
+            function openEditModal(projectId) {
+                const project = projects.find(p => p.id == projectId);
+                if (!project) return;
+                editingProjectId = project.id;
+
+                editTitleInput.value = project.title || '';
+                editResearchers.setValue(project.researchers);
+                editEngineers.setValue(project.engineers);
+                editInstitute.setValue(project.institute);
+
+                // Same categories as the "Add New Project" form (+ the project's own if it is not listed)
+                editCategorySelect.innerHTML = document.getElementById('projectCategory').innerHTML;
+                if (project.category && ![...editCategorySelect.options].some(o => o.value === project.category)) {
+                    editCategorySelect.add(new Option(project.category, project.category));
+                }
+                editCategorySelect.value = project.category;
+
+                document.getElementById('editProjectTime').textContent = project.totalHours;
+                editModal.hidden = false;
+                editTitleInput.focus();
+            }
+
+            function closeEditModal() {
+                editModal.hidden = true;
+                editingProjectId = null;
+            }
+
+            async function saveProjectEdit(e) {
+                e.preventDefault();
+                const project = projects.find(p => p.id == editingProjectId);
+                if (!project) return closeEditModal();
+
+                const title = editTitleInput.value.trim();
+                const researchers = editResearchers.getValue();
+                const engineers = editEngineers.getValue();
+                const institute = editInstitute.getValue();
+                const category = editCategorySelect.value;
+
+                if (!title || researchers.length === 0 || !institute) {
+                    showNotification('Title, at least one researcher and an institute are required', 'error');
+                    return;
+                }
+
+                // Only the descriptive fields change. totalHours, dates, status and id are left as they are.
+                Object.assign(project, { title, researchers, engineers, institute, category });
+
+                closeEditModal();
+                const saving = saveIndividualProject(project); // send first, then redraw
+                renderProjects();
+                renderCharts();
+                if (await saving) {
+                    showNotification('Project updated!');
+                }
+            }
+
+            editForm.addEventListener('submit', saveProjectEdit);
+            document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
+            editModal.addEventListener('mousedown', e => { if (e.target === editModal) closeEditModal(); });
+            editModal.addEventListener('keydown', e => { if (e.key === 'Escape') closeEditModal(); });
+
             // Initialize the application
             init();
         });
