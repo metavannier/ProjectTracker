@@ -35,6 +35,9 @@ app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    // Reset the 8h countdown on every request, so the session only expires
+    // after 8h of *inactivity* instead of 8h after login.
+    rolling: true,
     cookie: {
         httpOnly: true,
         sameSite: 'strict',
@@ -115,6 +118,11 @@ app.get("/logout", (req, res) => {
 
 // ─── API Routes — all protected by requireAuth ───────────────────────────
 
+// Lightweight session check used by the front-end
+app.get("/api/session", requireAuth, (req, res) => {
+    res.json({ authenticated: true });
+});
+
 // Helper to get individual project filename
 function getProjectFilename(project) {
     const safeTitle = project.title
@@ -174,7 +182,7 @@ app.get("/api/projects", requireAuth, (req, res) => {
         if (fs.existsSync(DATA_FILE)) {
             res.json(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
         } else {
-            res.redirect('/');
+            res.status(500).json({ error: "Failed to load projects" });
         }
     }
 });
