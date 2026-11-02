@@ -856,7 +856,7 @@
                 <div class="import-save-section">    
                     <div class="save-section">
                         <h2>Save Your Work</h2>
-                        <p>Your data is automatically saved to your browser's local storage.</p>
+                        <p>Your data is automatically saved on the server.</p>
                         <button class="save-btn" id="exportBtn">Export Data as JSON</button>
                     </div>
 
@@ -944,31 +944,51 @@
             let timerInterval = null;
             let seconds = 0;
             let timerStartedAt = null;   // wall-clock start, immune to background-tab throttling
+            let timerProjectId = null;   // project the running timer belongs to (not the current checkbox selection)
             let sessionExpired = false;
-            const UNSYNCED_KEY = 'projectTracker.unsyncedProjects';
             let selectedRow = null;
             let selectedRows = new Set();
             let selectedFinishedRows = new Set();
             let isTimerRunning = false;
+            let isDragging = false;
             let currentCategory = 'all';
             let timeChart = null;
             let projectsChart = null;
-            
+
+            // Changes that could not be sent yet (expired session / server unreachable).
+            // Each entry is ONE change (never a copy of the whole list) and keeps its unique
+            // id, so the server applies it exactly once even if it is sent several times.
+            const PENDING_KEY = 'projectTracker.pendingChanges.v2';
+            // Whole-list copy written by the previous version (see restoreLegacyLocalCopy)
+            const LEGACY_UNSYNCED_KEY = 'projectTracker.unsyncedProjects';
+            // Changes made by other engineers appear without reloading the page
+            const REFRESH_INTERVAL_MS = 30000;
+
             // Initialize the app
             function init() {
                 // Set logo - Replace with your actual PNG file path
                 // headerLogo.style.backgroundImage = "url('https://example.com/path/to/your/logo.png')";
-                
+
                 loadData();
                 renderProjects();
                 renderCharts();
 
                 // When the tab comes back to the foreground (e.g. after a long break),
-                // verify the session immediately instead of waiting for the next save
+                // verify the session and show the latest data immediately
                 document.addEventListener('visibilitychange', () => {
-                    if (document.visibilityState === 'visible') checkSession();
+                    if (document.visibilityState === 'visible') refreshProjects();
                 });
-                
+                // Page restored from the browser's back/forward cache: never show old data
+                window.addEventListener('pageshow', e => {
+                    if (e.persisted) refreshProjects();
+                });
+                // Connection is back: send the changes that are waiting
+                window.addEventListener('online', () => flushPendingChanges());
+                // Automatic refresh while the page is visible (does not keep the session alive)
+                setInterval(() => {
+                    if (document.visibilityState === 'visible') refreshProjects({ background: true });
+                }, REFRESH_INTERVAL_MS);
+
                 // Set up event listeners
                 setupEventListeners();
                 
@@ -1035,233 +1055,375 @@
                 }
             }
             
-            // Load from the serveur
-            // ─── Server communication helpers ─────────────────────────────
+            // ─── Server communication ─────────────────────────────────────
+            // Every action sends ONE targeted change (add time, finish, edit...) to the
+            // server. The server applies it in the database and answers with the complete,
+            // up-to-date project list, which then replaces the local copy. The browser
+            // never writes its whole (possibly outdated) list back to the server.
+
             // fetch() does NOT throw on 401/500, so every response must be checked.
             async function apiFetch(url, options = {}) {
-                const res = await fetch(url, { credentials: 'same-origin', ...options });
+                let res;
+                try {
+                    res = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...options });
+                } catch (e) {
+                    const err = new Error('Server unreachable');
+                    err.transient = true;
+                    throw err;
+                }
                 // 401 = session gone; res.redirected = server sent us to the login page
                 if (res.status === 401 || res.redirected) {
-                    handleSessionExpired();
-                    throw new Error('SESSION_EXPIRED');
+                    const err = new Error('SESSION_EXPIRED');
+                    err.sessionExpired = true;
+                    throw err;
                 }
-                if (!res.ok) throw new Error(`Server error ${res.status}`);
+                if (!res.ok) {
+                    let data = null;
+                    try { data = await res.json(); } catch (e) { /* not a JSON answer */ }
+                    const err = new Error((data && data.error) || `Server error ${res.status}`);
+                    err.status = res.status;
+                    err.data = data;
+                    // Reverse proxy or database temporarily unavailable: worth sending again later
+                    err.transient = [502, 503, 504].includes(res.status);
+                    throw err;
+                }
                 return res;
             }
 
-            // Keep a local copy of data the server did not accept, so nothing is lost
-            function rememberUnsynced() {
+            // Unique id of a change (crypto.getRandomValues also works on plain http://)
+            function newChangeId() {
+                const bytes = new Uint8Array(16);
+                crypto.getRandomValues(bytes);
+                return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+            }
+
+            function pendingChanges() {
                 try {
-                    localStorage.setItem(UNSYNCED_KEY, JSON.stringify(projects));
+                    const list = JSON.parse(localStorage.getItem(PENDING_KEY));
+                    return Array.isArray(list) ? list : [];
                 } catch (e) {
-                    console.error('Could not store unsynced data locally:', e);
+                    return [];
                 }
+            }
+
+            function savePendingChanges(list) {
+                try {
+                    if (list.length > 0) localStorage.setItem(PENDING_KEY, JSON.stringify(list));
+                    else localStorage.removeItem(PENDING_KEY);
+                } catch (e) {
+                    console.error('Could not store unsynced changes locally:', e);
+                }
+            }
+
+            // Keep a change on this computer, so nothing is lost if it cannot be sent now
+            function keepForLater(change) {
+                const list = pendingChanges();
+                if (!list.some(c => c.id === change.id)) list.push(change);
+                savePendingChanges(list);
+            }
+
+            function forgetChange(id) {
+                savePendingChanges(pendingChanges().filter(c => c.id !== id));
+            }
+
+            async function sendChange(change) {
+                const res = await apiFetch(change.url, {
+                    method: change.method,
+                    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': change.id },
+                    body: change.body === undefined ? undefined : JSON.stringify(change.body),
+                });
+                return res.json();
+            }
+
+            // Replaces the local copy with the list sent by the server
+            let dataVersion = 0;
+            function applyServerProjects(list) {
+                if (!Array.isArray(list)) return;
+                dataVersion++;
+                const changed = JSON.stringify(list) !== JSON.stringify(projects);
+                projects = list;
+                pruneSelection();
+                if (changed) {
+                    try {
+                        renderProjects();
+                        renderCharts();
+                    } catch (e) {
+                        // A display problem must never be reported as a failed save
+                        console.error('Display error:', e);
+                    }
+                }
+            }
+
+            // Forget selected rows whose project was deleted, finished or reopened by someone else
+            function pruneSelection() {
+                const ids = status => new Set(projects.filter(p => p.status === status).map(p => String(p.id)));
+                const active = ids('active');
+                const finished = ids('finished');
+                selectedRows.forEach(id => { if (!active.has(id)) selectedRows.delete(id); });
+                selectedFinishedRows.forEach(id => { if (!finished.has(id)) selectedFinishedRows.delete(id); });
+                if (selectedRow !== null && !selectedRows.has(String(selectedRow))) {
+                    selectedRow = selectedRows.size > 0 ? [...selectedRows].at(-1) : null;
+                }
+            }
+
+            // Sends one change to the server.
+            //   optimistic: updates the screen at once (like before); the server's answer
+            //               then confirms or corrects it
+            //   success / failure: notification texts
+            // Returns true when the change was saved (or kept on this computer to be sent later).
+            let changesInFlight = 0;
+            async function sendToServer(method, url, body, { optimistic, success, failure } = {}) {
+                const change = { id: newChangeId(), method, url, body, createdAt: new Date().toISOString() };
+                if (optimistic) {
+                    optimistic();
+                    pruneSelection();
+                    renderProjects();
+                    renderCharts();
+                }
+                // Keep the changes in order: if older ones are still waiting, queue behind them
+                if (pendingChanges().length > 0) {
+                    keepForLater(change);
+                    if (await flushPendingChanges()) {
+                        if (success) showNotification(success);
+                    } else if (!sessionExpired) {
+                        showNotification('Server unreachable: your change is kept on this computer and will be sent automatically', 'error');
+                    }
+                    return true;
+                }
+                changesInFlight++;
+                try {
+                    const data = await sendChange(change);
+                    applyServerProjects(data.projects);
+                    if (success) showNotification(success);
+                    return true;
+                } catch (err) {
+                    if (err.sessionExpired || err.transient) {
+                        keepForLater(change);
+                        if (err.sessionExpired) handleSessionExpired();
+                        else showNotification('Server unreachable: your change is kept on this computer and will be sent automatically', 'error');
+                        return true;
+                    }
+                    // Refused by the server (e.g. changed or deleted by someone else meanwhile):
+                    // show why, and display the current data again
+                    showNotification((failure ? failure + ': ' : 'Save failed: ') + err.message, 'error');
+                    if (err.data && Array.isArray(err.data.projects)) applyServerProjects(err.data.projects);
+                    else refreshProjects();
+                    return false;
+                } finally {
+                    changesInFlight--;
+                }
+            }
+
+            // Sends the changes kept on this computer, oldest first.
+            // Returns true when nothing is left to send.
+            let flushing = null;
+            function flushPendingChanges() {
+                if (!flushing) flushing = doFlushPendingChanges().finally(() => { flushing = null; });
+                return flushing;
+            }
+
+            async function doFlushPendingChanges() {
+                let list = pendingChanges();
+                while (list.length > 0 && !sessionExpired) {
+                    const change = list[0];
+                    try {
+                        const data = await sendChange(change);
+                        forgetChange(change.id);
+                        applyServerProjects(data.projects);
+                    } catch (err) {
+                        if (err.sessionExpired) {
+                            handleSessionExpired();
+                            return false;
+                        }
+                        if (err.transient) return false;   // still unreachable: keep it, retry later
+                        // Refused by the server (e.g. the project was deleted meanwhile): drop it
+                        forgetChange(change.id);
+                        showNotification('A change kept on this computer could not be saved: ' + err.message, 'error');
+                        if (err.data && Array.isArray(err.data.projects)) applyServerProjects(err.data.projects);
+                    }
+                    list = pendingChanges();
+                }
+                return list.length === 0;
             }
 
             function handleSessionExpired() {
                 if (sessionExpired) return;          // only react once
                 sessionExpired = true;
 
-                // If a timer is running, fold the elapsed time into the project
-                // so it is part of the locally stored copy
-                if (isTimerRunning && selectedRow) {
+                // If a timer is running, keep the elapsed time on this computer as a change
+                // that will be sent after the next login
+                if (isTimerRunning && timerProjectId !== null) {
                     clearInterval(timerInterval);
                     isTimerRunning = false;
                     const elapsed = Math.floor((Date.now() - timerStartedAt) / 1000);
-                    const p = projects.find(p => p.id == selectedRow);
-                    if (p) {
-                        p.totalHours = formatTime(parseTimeString(p.totalHours) + elapsed);
-                        p.lastUpdate = new Date().toLocaleDateString('en-GB').concat('\r\n', new Date().toLocaleTimeString('en-GB'));
-                    }
+                    keepForLater({
+                        id: newChangeId(),
+                        method: 'POST',
+                        url: `/api/projects/${Number(timerProjectId)}/time`,
+                        body: { seconds: elapsed, lastUpdate: nowStamp() },
+                        createdAt: new Date().toISOString(),
+                    });
                 }
 
-                rememberUnsynced();
                 alert('Your session has expired.\n\nYour latest changes were kept on this computer and will be offered for restore after you log in again.');
                 window.location.href = '/';
             }
 
-            async function checkSession() {
-                if (sessionExpired) return;
+            // Reloads the list from the server.
+            // background = automatic refresh: does not count as activity for the session timeout
+            async function refreshProjects({ background = false } = {}) {
+                if (sessionExpired) return false;
+                if (background && (changesInFlight > 0 || isDragging || flushing)) return false;
+                if (pendingChanges().length > 0 && !(await flushPendingChanges())) return false;
+                const versionBefore = dataVersion;
                 try {
-                    await apiFetch('/api/session');
-                } catch (e) {
-                    if (e.message !== 'SESSION_EXPIRED') console.warn('Session check failed:', e);
+                    const res = await apiFetch('/api/projects', background ? { headers: { 'X-Background-Refresh': '1' } } : {});
+                    const list = await res.json();
+                    // Ignore this answer if a newer one (from a change) arrived in the meantime
+                    if (versionBefore === dataVersion && changesInFlight === 0) applyServerProjects(list);
+                    return true;
+                } catch (err) {
+                    if (err.sessionExpired) handleSessionExpired();
+                    else console.warn('Could not refresh the project list:', err.message);
+                    return false;
                 }
             }
 
-            // Push data that could not be saved during a previous (expired) session
+            // Offer to send the changes kept on this computer during a previous visit
             async function restoreUnsyncedData() {
-                let raw = null;
-                try { raw = localStorage.getItem(UNSYNCED_KEY); } catch (e) {}
-                if (!raw) return;
+                const list = pendingChanges();
+                if (list.length === 0) return;
 
-                if (!confirm('Changes made after your last session expired were not saved on the server.\n\nRestore them now? (Cancel discards them.)')) {
-                    localStorage.removeItem(UNSYNCED_KEY);
+                if (!confirm(`${list.length} change(s) made on this computer were not saved on the server (expired session or connection lost).\n\nRestore them now? (Cancel discards them.)`)) {
+                    savePendingChanges([]);
                     return;
                 }
-                try {
-                    projects = JSON.parse(raw);
-                    await apiFetch("/api/projects", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(projects),
-                    });
-                    await Promise.all(projects.map(p => apiFetch(`/api/project/${p.id}`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(p),
-                    })));
-                    localStorage.removeItem(UNSYNCED_KEY);
+                if (await flushPendingChanges()) {
                     showNotification('Unsaved changes restored and synced!');
-                } catch (e) {
-                    console.error('Restore failed:', e);
-                    showNotification('Could not restore unsaved changes', 'error');
+                } else if (!sessionExpired) {
+                    showNotification('Could not restore unsaved changes yet: they are kept and will be sent automatically', 'error');
                 }
             }
 
-            // Load from the serveur
+            // The previous version stored a copy of the WHOLE list in the browser when a save
+            // failed, and wrote it back over the server data after the next login, erasing what
+            // other engineers had saved in the meantime. Such a copy is never written back any
+            // more: only recorded times that are higher on this computer are offered for restore.
+            async function restoreLegacyLocalCopy() {
+                let legacy = null;
+                try {
+                    legacy = JSON.parse(localStorage.getItem(LEGACY_UNSYNCED_KEY));
+                    localStorage.removeItem(LEGACY_UNSYNCED_KEY);
+                } catch (e) { /* nothing usable */ }
+                if (!Array.isArray(legacy)) return;
+
+                const differences = legacy.map(local => {
+                    const server = projects.find(p => local && p.id === local.id);
+                    if (!server || typeof local.totalHours !== 'string') return null;
+                    return parseTimeString(local.totalHours) > parseTimeString(server.totalHours) ? { server, local } : null;
+                }).filter(Boolean);
+                if (differences.length === 0) return;
+
+                const lines = differences
+                    .map(d => `• ${d.server.title}: ${d.local.totalHours} on this computer, ${d.server.totalHours} on the server`)
+                    .join('\n');
+                if (!confirm(`Time recorded on this computer with the previous version of the application was not saved on the server:\n\n${lines}\n\nRestore these times now? (Cancel discards them.)`)) return;
+
+                for (const d of differences) {
+                    const lastUpdate = typeof d.local.lastUpdate === 'string' && /^\d{2}\/\d{2}\/\d{4}/.test(d.local.lastUpdate)
+                        ? d.local.lastUpdate : nowStamp();
+                    await sendToServer('PUT', `/api/projects/${d.server.id}/time`, {
+                        totalHours: formatTime(parseTimeString(d.local.totalHours)),
+                        expected: d.server.totalHours,
+                        lastUpdate,
+                    }, { success: 'Unsaved changes restored and synced!' });
+                }
+            }
+
+            // Load from the server
             async function loadData() {
                 try {
                     const res = await apiFetch("/api/projects");
-                    projects = await res.json();
-                    await restoreUnsyncedData();
+                    applyServerProjects(await res.json());
                 } catch (e) {
-                    if (e.message !== 'SESSION_EXPIRED') {
-                        showNotification('Could not load data from server', 'error');
+                    if (e.sessionExpired) {
+                        handleSessionExpired();
+                        return;
                     }
+                    showNotification('Could not load data from server', 'error');
+                    return;
                 }
-                renderProjects();
-                renderCharts();
-            }
-
-            // Save on the serveur
-            async function saveData() {
-                try {
-                    await apiFetch("/api/projects", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(projects),
-                    });
-                    showNotification("Data saved on server!");
-                } catch (err) {
-                    rememberUnsynced();
-                    if (err.message !== 'SESSION_EXPIRED') {
-                        showNotification('Save failed: ' + err.message, 'error');
-                    }
-                }
-                renderCharts();
+                await restoreLegacyLocalCopy();
+                await restoreUnsyncedData();
             }
 
             // Delete project
             async function deleteProject(projectId) {
-                if (confirm('Are you sure you want to delete this project?')) {
-                    // Find the project first (to get its title for filename)
-                    const projectToDelete = projects.find(p => p.id == projectId);
-                    
-                    // Delete from local array
-                    projects = projects.filter(p => p.id != projectId);
-                    
-                    // Save updated projects (main file)
-                    await saveData();
-                    
-                    // Also call delete endpoint for individual file
-                    try {
-                        await apiFetch(`/api/project/${projectId}`, {
-                            method: 'DELETE'
-                        });
-                    } catch (err) {
-                        console.error('Error deleting individual project file:', err);
-                    }
-                    
-                    renderProjects();
-                    showNotification('Project deleted!');
-                }
+                if (!confirm('Are you sure you want to delete this project?')) return;
+                const id = Number(projectId);
+                await sendToServer('DELETE', `/api/projects/${id}`, undefined, {
+                    optimistic: () => { projects = projects.filter(p => p.id !== id); },
+                    success: 'Project deleted!',
+                });
             }
 
-            // New function to save individual project
-            async function saveIndividualProject(project) {
-                try {
-                    await apiFetch(`/api/project/${project.id}`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(project),
-                    });
-                    return true;
-                } catch (err) {
-                    console.error("Error saving individual project:", err);
-                    rememberUnsynced();
-                    if (err.message !== 'SESSION_EXPIRED') {
-                        showNotification('Save failed: ' + err.message, 'error');
-                    }
-                    return false;
-                }
-            }
-            
             // Export data as JSON
-            function exportData() {
+            async function exportData() {
+                await refreshProjects();   // export the latest data saved on the server
+
                 const data = {
                     projects: projects,
                     exportedAt: new Date().toISOString(),
                     source: "Project Time Tracker by Thomas Vannier"
                 };
-                
+
                 const dataStr = JSON.stringify(data, null, 2);
                 const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-                
+
                 const exportFileDefaultName = 'centuri-projects.json';
-                
+
                 const linkElement = document.createElement('a');
                 linkElement.setAttribute('href', dataUri);
                 linkElement.setAttribute('download', exportFileDefaultName);
                 linkElement.click();
             }
-            
+
             // Import data as JSON
             function importData() {
                 const file = importFileInput.files[0];
                 if (!file) return;
 
                 const reader = new FileReader();
-                reader.onload = function (e) {
+                reader.onload = async function (e) {
+                    importFileInput.value = '';
+                    let imported;
                     try {
-                        const parsed   = JSON.parse(e.target.result);
-                        const imported = Array.isArray(parsed) ? parsed : (parsed.projects || null);
-
-                        if (!imported || !Array.isArray(imported)) {
-                            showNotification('Invalid JSON: no projects array found', 'error');
-                            return;
-                        }
-
-                        if (!confirm(`Add ${imported.length} imported project(s) to the current list?`)) {
-                            importFileInput.value = '';
-                            return;
-                        }
-
-                        let nextId = projects.length > 0 ? Math.max(...projects.map(p => p.id)) + 1 : 1;
-
-                        const addedProjects = imported.map(p => ({
-                            ...p,
-                            id: nextId++
-                        }));
-
-                        projects = projects.concat(addedProjects);
-
-                        saveData();
-
-                        addedProjects.forEach(p => saveIndividualProject(p));
-
-                        renderProjects();
-                        renderCharts();
-                        showNotification(`${addedProjects.length} project(s) imported successfully!`);
+                        const parsed = JSON.parse(e.target.result);
+                        imported = Array.isArray(parsed) ? parsed : (parsed.projects || null);
                     } catch (err) {
                         showNotification('Error reading JSON: ' + err.message, 'error');
+                        return;
                     }
-                    importFileInput.value = '';
+
+                    if (!imported || !Array.isArray(imported)) {
+                        showNotification('Invalid JSON: no projects array found', 'error');
+                        return;
+                    }
+
+                    if (!confirm(`Add ${imported.length} imported project(s) to the current list?`)) {
+                        return;
+                    }
+
+                    // The server gives the imported projects new ids and keeps all other values
+                    await sendToServer('POST', '/api/projects/import', { projects: imported }, {
+                        success: `${imported.length} project(s) imported successfully!`,
+                        failure: 'Import failed',
+                    });
                 };
                 reader.readAsText(file);
             }
 
-            
+
             // Update multi-select bar visibility
             function updateMultiSelectBar() {
                 if (selectedRows.size > 1) {
@@ -1309,69 +1471,71 @@
                 updateMultiSelectBarFinished();
             }
 
+            // One request for all the selected projects (applied together on the server)
+            async function bulkChange(action, ids, { optimistic, success, endDate }) {
+                await sendToServer('POST', '/api/projects/bulk', { action, ids, ...(endDate ? { endDate } : {}) }, {
+                    optimistic,
+                    success,
+                });
+            }
+
             async function reopenSelectedProjects() {
                 if (selectedFinishedRows.size === 0) return;
                 if (!confirm(`Reopen ${selectedFinishedRows.size} project(s)?`)) return;
-                const count = selectedFinishedRows.size;
-                for (const id of selectedFinishedRows) {
-                    const idx = projects.findIndex(p => p.id == id);
-                    if (idx !== -1) {
-                        projects[idx].status = 'active';
-                        projects[idx].endDate = '';
-                        await saveIndividualProject(projects[idx]);
-                    }
-                }
+                const ids = [...selectedFinishedRows].map(Number);
                 selectedFinishedRows.clear();
-                await saveData();
-                renderProjects();
-                showNotification(`${count} project(s) reopened!`);
+                await bulkChange('reopen', ids, {
+                    optimistic: () => projects.forEach(p => {
+                        if (ids.includes(p.id)) { p.status = 'active'; p.endDate = ''; }
+                    }),
+                    success: `${ids.length} project(s) reopened!`,
+                });
             }
 
             async function deleteSelectedFinishedProjects() {
                 if (selectedFinishedRows.size === 0) return;
                 if (!confirm(`Delete ${selectedFinishedRows.size} project(s)? This cannot be undone.`)) return;
-                const count = selectedFinishedRows.size;
-                for (const id of selectedFinishedRows) {
-                    projects = projects.filter(p => p.id != id);
-                    try { await apiFetch(`/api/project/${id}`, { method: 'DELETE' }); } catch(e) {}
-                }
+                const ids = [...selectedFinishedRows].map(Number);
                 selectedFinishedRows.clear();
-                await saveData();
-                renderProjects();
-                showNotification(`${count} project(s) deleted!`);
+                await bulkChange('delete', ids, {
+                    optimistic: () => { projects = projects.filter(p => !ids.includes(p.id)); },
+                    success: `${ids.length} project(s) deleted!`,
+                });
             }
 
             async function finishSelectedProjects() {
                 if (selectedRows.size === 0) return;
                 if (!confirm(`Mark ${selectedRows.size} project(s) as finished?`)) return;
-                for (const id of selectedRows) {
-                    const idx = projects.findIndex(p => p.id == id);
-                    if (idx !== -1) {
-                        projects[idx].status = 'finished';
-                        projects[idx].endDate = new Date().toLocaleDateString('en-GB');
-                        await saveIndividualProject(projects[idx]);
-                    }
-                }
+                const ids = [...selectedRows].map(Number);
+                const endDate = todayString();
                 selectedRows.clear();
                 selectedRow = null;
-                await saveData();
-                renderProjects();
-                showNotification(`${selectedRows.size === 0 ? 'Projects' : 'Projects'} marked as finished!`);
+                await bulkChange('finish', ids, {
+                    endDate,
+                    optimistic: () => projects.forEach(p => {
+                        if (ids.includes(p.id) && p.status === 'active') { p.status = 'finished'; p.endDate = endDate; }
+                    }),
+                    success: 'Projects marked as finished!',
+                });
             }
 
             async function deleteSelectedProjects() {
                 if (selectedRows.size === 0) return;
                 if (!confirm(`Delete ${selectedRows.size} project(s)? This cannot be undone.`)) return;
-                const count = selectedRows.size;
-                for (const id of selectedRows) {
-                    projects = projects.filter(p => p.id != id);
-                    try { await apiFetch(`/api/project/${id}`, { method: 'DELETE' }); } catch(e) {}
-                }
+                const ids = [...selectedRows].map(Number);
                 selectedRows.clear();
                 selectedRow = null;
-                await saveData();
-                renderProjects();
-                showNotification(`${count} project(s) deleted!`);
+                await bulkChange('delete', ids, {
+                    optimistic: () => { projects = projects.filter(p => !ids.includes(p.id)); },
+                    success: `${ids.length} project(s) deleted!`,
+                });
+            }
+
+            // Text coming from the database is always displayed as text, never interpreted as HTML
+            function escapeHtml(value) {
+                return String(value ?? '').replace(/[&<>"']/g, c => (
+                    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+                ));
             }
 
             // Render projects to the table
@@ -1397,14 +1561,14 @@
                     row.innerHTML = `
                         <td><span class="drag-handle" title="Déplacer">⠿</span></td>
                         <td><input type="checkbox" data-id="${project.id}" ${isSelected ? 'checked' : ''}></td>
-                        <td>${project.title}</td>
-                        <td>${project.researchers.join(', ')}</td>
-                        <td>${project.engineers.join(', ')}</td>
-                        <td>${project.institute}</td>
-                        <td>${project.category}</td>
-                        <td>${project.startDate}</td>
-                        <td class="time-cell" id="time-${project.id}">${project.totalHours}</td>
-                        <td>${project.lastUpdate}</td>
+                        <td>${escapeHtml(project.title)}</td>
+                        <td>${escapeHtml(project.researchers.join(', '))}</td>
+                        <td>${escapeHtml(project.engineers.join(', '))}</td>
+                        <td>${escapeHtml(project.institute)}</td>
+                        <td>${escapeHtml(project.category)}</td>
+                        <td>${escapeHtml(project.startDate)}</td>
+                        <td class="time-cell${isTimerRunning && String(project.id) === String(timerProjectId) ? ' timer-active' : ''}" id="time-${project.id}">${escapeHtml(project.totalHours)}</td>
+                        <td>${escapeHtml(project.lastUpdate)}</td>
                         <td>
                             <button class="edit-btn" data-id="${project.id}" title="Edit project details">✎ Edit</button>
                             <button class="move-btn" data-id="${project.id}">Finish</button>
@@ -1481,14 +1645,14 @@
                     row.innerHTML = `
                         <td><span class="drag-handle" title="Déplacer">⠿</span></td>
                         <td><input type="checkbox" data-id="${project.id}" ${isSelected ? 'checked' : ''}></td>
-                        <td>${project.title}</td>
-                        <td>${project.researchers.join(', ')}</td>
-                        <td>${project.engineers.join(', ')}</td>
-                        <td>${project.institute}</td>
-                        <td>${project.category}</td>
-                        <td>${project.startDate}</td>
-                        <td>${project.endDate}</td>
-                        <td>${project.totalHours}</td>
+                        <td>${escapeHtml(project.title)}</td>
+                        <td>${escapeHtml(project.researchers.join(', '))}</td>
+                        <td>${escapeHtml(project.engineers.join(', '))}</td>
+                        <td>${escapeHtml(project.institute)}</td>
+                        <td>${escapeHtml(project.category)}</td>
+                        <td>${escapeHtml(project.startDate)}</td>
+                        <td>${escapeHtml(project.endDate)}</td>
+                        <td>${escapeHtml(project.totalHours)}</td>
                         <td>
                             <button class="edit-btn" data-id="${project.id}" title="Edit project details">✎ Edit</button>
                             <button class="reopen-btn" data-id="${project.id}">Reopen</button>
@@ -1559,12 +1723,14 @@
                 tbody.querySelectorAll('tr[draggable]').forEach(row => {
                     row.addEventListener('dragstart', function(e) {
                         dragSrc = this;
+                        isDragging = true;   // no automatic refresh while a row is being dragged
                         this.classList.add('dragging');
                         e.dataTransfer.effectAllowed = 'move';
                         e.dataTransfer.setData('text/plain', this.getAttribute('data-id'));
                     });
 
                     row.addEventListener('dragend', function() {
+                        isDragging = false;
                         this.classList.remove('dragging');
                         tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
                     });
@@ -1593,30 +1759,36 @@
                         const draggedGlobalIdx = projects.findIndex(p => p.id === draggedId);
                         const targetGlobalIdx  = projects.findIndex(p => p.id === targetId);
                         if (draggedGlobalIdx === -1 || targetGlobalIdx === -1) return;
+                        isDragging = false;
 
-                        const [moved] = projects.splice(draggedGlobalIdx, 1);
+                        // Only "move this project next to that one" is sent: the server applies
+                        // the move to the current order, so it never undoes other people's changes
+                        await sendToServer('POST', `/api/projects/${draggedId}/move`, { targetId }, {
+                            optimistic: () => {
+                                const [moved] = projects.splice(draggedGlobalIdx, 1);
 
-                        const newTargetIdx = projects.findIndex(p => p.id === targetId);
+                                const newTargetIdx = projects.findIndex(p => p.id === targetId);
 
-                        const insertAt = draggedGlobalIdx < targetGlobalIdx
-                            ? newTargetIdx + 1
-                            : newTargetIdx;
+                                const insertAt = draggedGlobalIdx < targetGlobalIdx
+                                    ? newTargetIdx + 1
+                                    : newTargetIdx;
 
-                        projects.splice(insertAt, 0, moved);
+                                projects.splice(insertAt, 0, moved);
 
-                        // Reassign order field to reflect new positions
-                        projects.forEach((p, i) => { p.order = i; });
-
-                        await saveData();
-                        // Also persist order on each individual project file
-                        await Promise.all(projects.map(p => saveIndividualProject(p)));
-                        renderProjects();
+                                // Reassign order field to reflect new positions
+                                projects.forEach((p, i) => { p.order = i; });
+                            },
+                            success: 'Data saved on server!',
+                        });
                     });
                 });
             }
 
             // Render charts
             function renderCharts() {
+                // Chart library not loaded (CDN unreachable): the tables still work
+                if (typeof Chart === 'undefined') return;
+
                 // Calculate data for charts
                 const instituteTime = {};
                 const instituteProjects = {};
@@ -1725,8 +1897,8 @@
                 }
             }
             
-            // Add a new project
-            function addProject() {
+            // Add a new project (its id is assigned by the database: no duplicates between computers)
+            async function addProject() {
                 const title = document.getElementById('projectTitle').value.trim();
                 const researchers = newResearchers.getValue();
                 const engineers = newEngineers.getValue();
@@ -1738,69 +1910,61 @@
                     return;
                 }
                 
-                const newProject = {
-                    id: projects.length > 0 ? Math.max(...projects.map(p => p.id)) + 1 : 1,
-                    title: title,
-                    researchers: researchers,
-                    engineers: engineers,
-                    institute: institute,
-                    submissionDate: new Date().toLocaleDateString('en-GB'),
-                    startDate: new Date().toLocaleDateString('en-GB'),
-                    endDate: '',
-                    totalHours: '0:00:00',
-                    lastUpdate: new Date().toLocaleDateString('en-GB').concat('\r\n', new Date().toLocaleTimeString('en-GB')),
-                    category: category,
-                    status: 'active'
-                };
+                addProjectBtn.disabled = true;   // a double click must not create the project twice
+                let saved = false;
+                try {
+                    saved = await sendToServer('POST', '/api/projects', {
+                        title: title,
+                        researchers: researchers,
+                        engineers: engineers,
+                        institute: institute,
+                        category: category,
+                        submissionDate: todayString(),
+                        startDate: todayString(),
+                        lastUpdate: nowStamp(),
+                    }, { success: 'Project added successfully!' });
+                } finally {
+                    addProjectBtn.disabled = false;
+                }
                 
-                projects.push(newProject);
-                saveData();
-                saveIndividualProject(newProject);
-                renderProjects();
-                
-                // Clear form
-                document.getElementById('projectTitle').value = '';
-                newResearchers.clear();
-                newEngineers.clear();
-                newInstitute.clear();
-                
-                showNotification('Project added successfully!');
+                if (saved) {
+                    // Clear form
+                    document.getElementById('projectTitle').value = '';
+                    newResearchers.clear();
+                    newEngineers.clear();
+                    newInstitute.clear();
+                }
             }
             
             // Move project to finished
             function moveProjectToFinished(projectId) {
-                const projectIndex = projects.findIndex(p => p.id == projectId);
-                
-                if (projectIndex !== -1) {
-                    projects[projectIndex].status = 'finished';
-                    projects[projectIndex].endDate = new Date().toLocaleDateString('en-GB');
-                    saveIndividualProject(projects[projectIndex]);
-                    renderProjects();
-                    showNotification('Project marked as finished!');
-                }
+                const id = Number(projectId);
+                const endDate = todayString();
+                return sendToServer('POST', `/api/projects/${id}/finish`, { endDate }, {
+                    optimistic: () => {
+                        const project = projects.find(p => p.id === id);
+                        if (project) {
+                            project.status = 'finished';
+                            project.endDate = endDate;
+                        }
+                    },
+                    success: 'Project marked as finished!',
+                });
             }
             
             // Reopen project
             function reopenProject(projectId) {
-                const projectIndex = projects.findIndex(p => p.id == projectId);
-                
-                if (projectIndex !== -1) {
-                    projects[projectIndex].status = 'active';
-                    projects[projectIndex].endDate = '';
-                    saveIndividualProject(projects[projectIndex]);
-                    renderProjects();
-                    showNotification('Project reopened!');
-                }
-            }
-            
-            // Delete project
-            function deleteProject(projectId) {
-                if (confirm('Are you sure you want to delete this project?')) {
-                    projects = projects.filter(p => p.id != projectId);
-                    saveData();
-                    renderProjects();
-                    showNotification('Project deleted!');
-                }
+                const id = Number(projectId);
+                return sendToServer('POST', `/api/projects/${id}/reopen`, undefined, {
+                    optimistic: () => {
+                        const project = projects.find(p => p.id === id);
+                        if (project) {
+                            project.status = 'active';
+                            project.endDate = '';
+                        }
+                    },
+                    success: 'Project reopened!',
+                });
             }
             
             // Start timer
@@ -1816,6 +1980,8 @@
                 }
                 
                 isTimerRunning = true;
+                // The time will be recorded on THIS project, even if the selection changes meanwhile
+                timerProjectId = selectedRow;
                 const timeCell = document.getElementById(`time-${selectedRow}`);
                 if (timeCell) timeCell.classList.add('timer-active');
                 
@@ -1843,23 +2009,25 @@
                 isTimerRunning = false;
                 seconds = Math.floor((Date.now() - timerStartedAt) / 1000);
                 
-                // Update the selected project's time
-                if (selectedRow) {
-                    const projectIndex = projects.findIndex(p => p.id == selectedRow);
-                    
-                    if (projectIndex !== -1) {
-                        const currentTime = parseTimeString(projects[projectIndex].totalHours);
-                        const totalSeconds = currentTime + seconds;
-                        
-                        projects[projectIndex].totalHours = formatTime(totalSeconds);
-                        projects[projectIndex].lastUpdate = new Date().toLocaleDateString('en-GB').concat('\r\n', new Date().toLocaleTimeString('en-GB'));
-                       
-                        // Save main file AND individual file
-                        saveIndividualProject(projects[projectIndex]);
-                        renderProjects();
-                        
-                        showNotification('Time recorded successfully!');
-                    }
+                // Add the measured time to the project the timer was started for.
+                // Only the measured duration is sent: the server adds it to the CURRENT total,
+                // so time recorded meanwhile by another engineer is never overwritten.
+                const projectId = Number(timerProjectId);
+                const elapsed = seconds;
+                timerProjectId = null;
+                if (projectId) {
+                    const lastUpdate = nowStamp();
+                    sendToServer('POST', `/api/projects/${projectId}/time`, { seconds: elapsed, lastUpdate }, {
+                        optimistic: () => {
+                            const project = projects.find(p => p.id === projectId);
+                            if (project) {
+                                project.totalHours = formatTime(parseTimeString(project.totalHours) + elapsed);
+                                project.lastUpdate = lastUpdate;
+                            }
+                        },
+                        success: 'Time recorded successfully!',
+                        failure: `${formatTime(elapsed)} could not be recorded`,
+                    });
                 }
                 
                 // Reset timer
@@ -1871,14 +2039,20 @@
             }
 
             // Open manual time modal
-            function openManualTimeModal() {
+            async function openManualTimeModal() {
                 if (!selectedRow) {
                     showNotification('Please select a project first', 'error');
                     return;
                 }
                 
-                const projectIndex0 = projects.findIndex(p => p.id == selectedRow);
-                const currentProjectTime = projectIndex0 !== -1 ? projects[projectIndex0].totalHours : '00:00:00';
+                const projectId = Number(selectedRow);
+                await refreshProjects();   // show the latest recorded time, not an old copy
+                const project = projects.find(p => p.id === projectId);
+                if (!project) {
+                    showNotification('This project no longer exists (it may have been deleted by another user).', 'error');
+                    return;
+                }
+                const currentProjectTime = project.totalHours;
                 const timeValue = prompt('Enter time to add (HH:MM:SS):', currentProjectTime);
                 
                 if (!timeValue) return;
@@ -1889,20 +2063,32 @@
                     return;
                 }
                 
-                const projectIndex = projects.findIndex(p => p.id == selectedRow);
-                
-                if (projectIndex !== -1) {
-                    const manualTime = parseTimeString(timeValue);
+                const totalHours = formatTime(parseTimeString(timeValue));
+                const lastUpdate = nowStamp();
+                // "expected" = the value shown in the prompt: if someone records time on this
+                // project in the meantime, the server refuses instead of erasing their hours
+                await sendToServer('PUT', `/api/projects/${projectId}/time`, { totalHours, expected: currentProjectTime, lastUpdate }, {
+                    optimistic: () => {
+                        const p = projects.find(p => p.id === projectId);
+                        if (p) {
+                            p.totalHours = totalHours;
+                            p.lastUpdate = lastUpdate;
+                        }
+                    },
+                    success: 'Manual time added successfully!',
+                });
+            }
 
-                    projects[projectIndex].totalHours = formatTime(manualTime);
-                    projects[projectIndex].lastUpdate = new Date().toLocaleDateString('en-GB').concat('\r\n', new Date().toLocaleTimeString('en-GB'));
-                    
-                    // Save main file AND individual file
-                    saveIndividualProject(projects[projectIndex]);
-                    renderProjects();
-                    
-                    showNotification('Manual time added successfully!');
-                }
+            // Today as DD/MM/YYYY (local date, same format as before)
+            function todayString(now = new Date()) {
+                return [now.getDate(), now.getMonth() + 1].map(n => String(n).padStart(2, '0')).join('/') + '/' + now.getFullYear();
+            }
+
+            // "Last Update" value: DD/MM/YYYY, line break, HH:MM:SS (local time, same format as before)
+            function nowStamp() {
+                const now = new Date();
+                const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+                return todayString(now) + '\r\n' + time;
             }
             
             // Format time as HH:MM:SS
@@ -2227,11 +2413,19 @@
             const editEngineers   = createCombo(document.getElementById('editEngineers'),   { multiple: true, getOptions: engineerOptions,   noun: 'engineer' });
             const editInstitute   = createCombo(document.getElementById('editInstitute'),   { getOptions: instituteOptions, noun: 'institute' });
             let editingProjectId = null;
+            let editOriginal = null;   // values shown when the dialog was opened (to detect concurrent edits)
 
             function openEditModal(projectId) {
                 const project = projects.find(p => p.id == projectId);
                 if (!project) return;
                 editingProjectId = project.id;
+                editOriginal = {
+                    title: project.title,
+                    researchers: [...project.researchers],
+                    engineers: [...project.engineers],
+                    institute: project.institute,
+                    category: project.category,
+                };
 
                 editTitleInput.value = project.title || '';
                 editResearchers.setValue(project.researchers);
@@ -2253,12 +2447,17 @@
             function closeEditModal() {
                 editModal.hidden = true;
                 editingProjectId = null;
+                editOriginal = null;
             }
 
             async function saveProjectEdit(e) {
                 e.preventDefault();
                 const project = projects.find(p => p.id == editingProjectId);
-                if (!project) return closeEditModal();
+                if (!project) {
+                    closeEditModal();
+                    showNotification('This project no longer exists (it may have been deleted by another user).', 'error');
+                    return;
+                }
 
                 const title = editTitleInput.value.trim();
                 const researchers = editResearchers.getValue();
@@ -2271,16 +2470,19 @@
                     return;
                 }
 
-                // Only the descriptive fields change. totalHours, dates, status and id are left as they are.
-                Object.assign(project, { title, researchers, engineers, institute, category });
-
+                // Only the descriptive fields are sent. totalHours, dates, status and id are never touched.
+                // "original" lets the server keep fields changed meanwhile by someone else, and
+                // refuse (instead of overwrite) a field that both users changed.
+                const id = project.id;
+                const original = editOriginal;
                 closeEditModal();
-                const saving = saveIndividualProject(project); // send first, then redraw
-                renderProjects();
-                renderCharts();
-                if (await saving) {
-                    showNotification('Project updated!');
-                }
+                await sendToServer('PATCH', `/api/projects/${id}`, { title, researchers, engineers, institute, category, original }, {
+                    optimistic: () => {
+                        const p = projects.find(p => p.id === id);
+                        if (p) Object.assign(p, { title, researchers, engineers, institute, category });
+                    },
+                    success: 'Project updated!',
+                });
             }
 
             editForm.addEventListener('submit', saveProjectEdit);

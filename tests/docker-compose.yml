@@ -1,0 +1,36 @@
+# Isolated stack used ONLY by tests/run-tests.sh: its own project name, port
+# and an in-memory database. It never touches the production containers/data.
+name: projecttracker-test
+
+services:
+  web:
+    build: ..
+    ports:
+      - "127.0.0.1:4099:80"
+    environment:
+      PASSWORD: test-password
+      SESSION_SECRET: test-session-secret-0123456789abcdef0123456789
+      MARIADB_DATABASE: pt_test
+      MARIADB_USER: pt_test
+      MARIADB_PASSWORD: pt_test_password
+      DB_HOST: db
+    volumes:
+      - ./:/tests:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: pt_test
+      MARIADB_USER: pt_test
+      MARIADB_PASSWORD: pt_test_password
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
