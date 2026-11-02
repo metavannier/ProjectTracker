@@ -1,4 +1,15 @@
+# Configuration with secrets (templates *.setup.env are versioned)
+*.env
+!*.setup.env
+
+# Data of the previous JSON-file version and migration input
 project
 project_29052026
 projects.json
-*.env
+legacy-data/
+
+# Backups
+backups/
+*.sql
+!database/schema.sql
+*.sql.gz

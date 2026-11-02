@@ -1,19 +1,54 @@
-version: "3.9"
-
 services:
+  # ---------------------------------------------------------------------------
+  # Web application: PHP 8.3 + Apache, listens on port 80 inside the container
+  # ---------------------------------------------------------------------------
   web:
     build: .
     container_name: projecttracker_web
     ports:
-      - "4020:80"
+      - "4020:80"                      # host port 4020 -> container port 80
     restart: unless-stopped
+    env_file:
+      - password.env                   # PASSWORD, SESSION_SECRET
+      - database.env                   # MARIADB_DATABASE, MARIADB_USER, MARIADB_PASSWORD
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - projectnet
-    volumes:
-      - ./projects.json:/app/projects.json           # Main projects file
-      - ./project:/app/project
+
+  # ---------------------------------------------------------------------------
+  # Database: MariaDB 11.4 (LTS). Not published on the host: only reachable
+  # from the web container. Data is kept in the "db_data" volume.
+  # ---------------------------------------------------------------------------
+  db:
+    image: mariadb:11.4
+    container_name: projecttracker_db
+    restart: unless-stopped
     env_file:
-      - password.env                   # Individual project files
+      - database.env
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+      MARIADB_AUTO_UPGRADE: "1"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - projectnet
+
+volumes:
+  db_data:
 
 networks:
   projectnet:

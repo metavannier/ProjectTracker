@@ -1,0 +1,17 @@
+# Never copy secrets or data into the image
+*.env
+legacy-data/
+projects.json
+project/
+project_*/
+backups/
+*.sql.gz
+
+# Not needed in the image
+.git/
+.github/
+node_modules/
+tests/
+docs/
+*.md
+LICENSE

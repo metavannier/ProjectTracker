@@ -1,0 +1,79 @@
+{
+  "projects": [
+    {
+      "id": 2,
+      "title": "Imaging pipeline",
+      "researchers": ["Ana Example"],
+      "engineers": ["Léa Exemple"],
+      "institute": "Inmed",
+      "submissionDate": "22/09/2025",
+      "startDate": "22/09/2025",
+      "endDate": "",
+      "totalHours": "201:00:00",
+      "lastUpdate": "19/06/2026",
+      "category": "Image Analysis",
+      "status": "active",
+      "order": 0
+    },
+    {
+      "id": 4,
+      "title": "Tracker <internal> & tools",
+      "researchers": ["NA"],
+      "engineers": ["Thomas Example"],
+      "institute": "MEP CENTURI",
+      "submissionDate": "23/09/2025",
+      "startDate": "23/09/2025",
+      "endDate": "08/10/2026",
+      "totalHours": "27:00:10",
+      "lastUpdate": "08/10/2026\r\n17:10:14",
+      "category": "Platform Development",
+      "status": "finished",
+      "order": 1
+    },
+    {
+      "id": 7,
+      "title": "#B23 | Multi-omic study",
+      "researchers": ["Béatrice Exemple", "Maya Example"],
+      "engineers": ["Chabot Example"],
+      "institute": "Ciml, IBDM",
+      "submissionDate": "26/09/2025",
+      "startDate": "26/09/2025",
+      "endDate": "",
+      "totalHours": "0:00:00",
+      "lastUpdate": "26/09/2025",
+      "category": "Bioinformatics",
+      "status": "active",
+      "order": 2
+    },
+    {
+      "id": 28,
+      "title": "Cell stretcher",
+      "researchers": ["Researcher One"],
+      "engineers": ["Fabrice Example"],
+      "institute": "IBDM",
+      "submissionDate": "05/10/2026",
+      "startDate": "05/10/2026",
+      "endDate": "",
+      "totalHours": "140:00:00",
+      "lastUpdate": "05/10/2026\r\n13:38:37",
+      "category": "Mechatronics",
+      "status": "active"
+    },
+    {
+      "id": 30,
+      "title": "Dyadic task",
+      "researchers": ["Sarah Example", "Eleonora Example"],
+      "engineers": ["Fabrice Example", "Eve Example", "Mathias Example"],
+      "institute": "Inmed",
+      "submissionDate": "05/10/2026",
+      "startDate": "05/10/2026",
+      "endDate": "",
+      "totalHours": "350:00:00",
+      "lastUpdate": "05/10/2026\r\n13:38:05",
+      "category": "Mechatronics",
+      "status": "active"
+    }
+  ],
+  "exportedAt": "2026-11-02T09:47:30.323Z",
+  "source": "Project Time Tracker by Thomas Vannier"
+}
