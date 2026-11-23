@@ -692,6 +692,51 @@
             margin-bottom: 15px;
             text-align: center;
         }
+
+        /* Date filter shared by all charts */
+        .chart-filter {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 30px;
+            padding: 15px;
+            background: #ecf0f1;
+            border-radius: 8px;
+        }
+
+        .chart-filter label {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .chart-filter input[type="date"] {
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .chart-filter-info {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .charts-container .chart-box-wide {
+            grid-column: 1 / -1;
+        }
+
+        .chart-box-wide .chart-canvas {
+            max-width: 50%;
+            margin: 0 auto;
+        }
+
+        .chart-empty {
+            padding: 30px 10px;
+            color: #7f8c8d;
+            font-style: italic;
+            text-align: center;
+        }
         
         @media (max-width: 1024px) {
             .main-content {
@@ -700,6 +745,10 @@
             
             .charts-container {
                 grid-template-columns: 1fr;
+            }
+
+            .chart-box-wide .chart-canvas {
+                max-width: 100%;
             }
             
             nav {
@@ -842,7 +891,14 @@
                     </tbody>
                 </table>
                 
-                <div class="charts-container">
+                <div class="chart-filter">
+                    <label for="chartStartDate">Charts: projects started on or after</label>
+                    <input type="date" id="chartStartDate">
+                    <button type="button" class="cancel-btn" id="chartStartDateClear">Show all projects</button>
+                    <span class="chart-filter-info" id="chartFilterInfo"></span>
+                </div>
+
+                <div class="charts-container" style="margin-top: 20px">
                     <div class="chart-box">
                         <h3 class="chart-title" id="timeChartTitle">Time Distribution by Institute (All Categories)</h3>
                         <canvas id="timeChart"></canvas>
@@ -850,6 +906,13 @@
                     <div class="chart-box">
                         <h3 class="chart-title" id="projectsChartTitle">Projects by Institute (All Categories)</h3>
                         <canvas id="projectsChart"></canvas>
+                    </div>
+                    <div class="chart-box chart-box-wide">
+                        <h3 class="chart-title" id="selectedChartTitle">Time Distribution by Institute for Selected Projects</h3>
+                        <p class="chart-empty" id="selectedChartEmpty">Tick projects in the tables above to see their time distribution.</p>
+                        <div class="chart-canvas" id="selectedChartWrap" hidden>
+                            <canvas id="selectedChart"></canvas>
+                        </div>
                     </div>
                 </div>
                 
@@ -926,6 +989,9 @@
             const headerLogo = document.getElementById('headerLogo');
             const timeChartTitle = document.getElementById('timeChartTitle');
             const projectsChartTitle = document.getElementById('projectsChartTitle');
+            const selectedChartTitle = document.getElementById('selectedChartTitle');
+            const chartStartDate = document.getElementById('chartStartDate');
+            const chartFilterInfo = document.getElementById('chartFilterInfo');
             const importBtn       = document.getElementById('importBtn');
             const importFileInput = document.getElementById('importFileInput');
             const multiSelectBar  = document.getElementById('multiSelectBar');
@@ -954,6 +1020,13 @@
             let currentCategory = 'all';
             let timeChart = null;
             let projectsChart = null;
+            let selectedChart = null;
+            let selectedChartSignature = '';
+            let chartInstituteOrder = [];   // institutes in the order of the time chart (gives their colour)
+            const CHART_COLOURS = [
+                '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
+                '#1abc9c', '#d35400', '#c0392b', '#16a085', '#27ae60'
+            ];
 
             // Changes that could not be sent yet (expired session / server unreachable).
             // Each entry is ONE change (never a copy of the whole list) and keeps its unique
@@ -1013,6 +1086,13 @@
                 reopenSelectedBtn.addEventListener('click', reopenSelectedProjects);
                 deleteSelectedFinishedBtn.addEventListener('click', deleteSelectedFinishedProjects);
                 deselectAllFinishedBtn.addEventListener('click', deselectAllFinished);
+
+                // Date filter of the charts (empty = all projects)
+                chartStartDate.addEventListener('change', renderCharts);
+                document.getElementById('chartStartDateClear').addEventListener('click', () => {
+                    chartStartDate.value = '';
+                    renderCharts();
+                });
            
                 
                 // Navigation buttons
@@ -1049,9 +1129,11 @@
                 if (currentCategory === 'all') {
                     timeChartTitle.textContent = 'Time Distribution by Institute (All Categories)';
                     projectsChartTitle.textContent = 'Projects by Institute (All Categories)';
+                    selectedChartTitle.textContent = 'Time Distribution by Institute for Selected Projects';
                 } else {
                     timeChartTitle.textContent = `Time Distribution by Institute (${currentCategory})`;
                     projectsChartTitle.textContent = `Projects by Institute (${currentCategory})`;
+                    selectedChartTitle.textContent = `Time Distribution by Institute for Selected Projects (${currentCategory})`;
                 }
             }
             
@@ -1439,6 +1521,7 @@
                     selectAllCb.checked = allCheckboxes.length > 0 && [...allCheckboxes].every(cb => cb.checked);
                     selectAllCb.indeterminate = selectedRows.size > 0 && !selectAllCb.checked;
                 }
+                renderSelectedChart();
             }
 
             function deselectAll() {
@@ -1462,6 +1545,7 @@
                     selectAllCb.checked = allCbs.length > 0 && [...allCbs].every(cb => cb.checked);
                     selectAllCb.indeterminate = selectedFinishedRows.size > 0 && !selectAllCb.checked;
                 }
+                renderSelectedChart();
             }
 
             function deselectAllFinished() {
@@ -1793,11 +1877,9 @@
                 const instituteTime = {};
                 const instituteProjects = {};
                 
-                // Filter projects by category for charts
-                let chartProjects = projects;
-                if (currentCategory !== 'all') {
-                    chartProjects = projects.filter(p => p.category === currentCategory);
-                }
+                // Filter projects by category and start date for charts
+                const chartProjects = chartFilteredProjects();
+                updateChartFilterInfo(chartProjects);
                 
                 chartProjects.forEach(project => {
                     const time = parseTimeString(project.totalHours);
@@ -1895,6 +1977,111 @@
                 } else {
                     document.getElementById('projectsChart').getContext('2d').clearRect(0, 0, 300, 300);
                 }
+
+                chartInstituteOrder = timeLabels;
+                renderSelectedChart();
+            }
+
+            // ─── Chart filters ─────────────────────────────────────────────
+
+            // "DD/MM/YYYY" -> "YYYY-MM-DD" (comparable as text), '' when missing
+            function isoDate(ddmmyyyy) {
+                const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(ddmmyyyy || '').trim());
+                return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+            }
+
+            // Projects used by the charts: current category + "started on or after" date
+            function chartFilteredProjects() {
+                const from = chartStartDate.value;   // "YYYY-MM-DD" or '' (no filter)
+                return projects.filter(p =>
+                    (currentCategory === 'all' || p.category === currentCategory) &&
+                    (!from || (isoDate(p.startDate) !== '' && isoDate(p.startDate) >= from))
+                );
+            }
+
+            function updateChartFilterInfo(chartProjects) {
+                if (!chartStartDate.value) {
+                    chartFilterInfo.textContent = 'All projects are included.';
+                    return;
+                }
+                const [y, m, d] = chartStartDate.value.split('-');
+                chartFilterInfo.textContent =
+                    `${chartProjects.length} project(s) with a Start Date on or after ${d}/${m}/${y}.`;
+            }
+
+            // Same colour for an institute as in "Time Distribution by Institute"
+            function instituteColour(institute) {
+                const index = chartInstituteOrder.indexOf(institute);
+                return CHART_COLOURS[(index === -1 ? 0 : index) % CHART_COLOURS.length];
+            }
+
+            // Time distribution of the projects ticked in both tables
+            function renderSelectedChart() {
+                if (typeof Chart === 'undefined') return;
+
+                const selectedIds = new Set([...selectedRows, ...selectedFinishedRows]);
+                const selectedProjects = chartFilteredProjects().filter(p => selectedIds.has(String(p.id)));
+
+                const instituteTime = {};
+                selectedProjects.forEach(p => {
+                    instituteTime[p.institute] = (instituteTime[p.institute] || 0) + parseTimeString(p.totalHours);
+                });
+                const labels = Object.keys(instituteTime).sort((a, b) =>
+                    chartInstituteOrder.indexOf(a) - chartInstituteOrder.indexOf(b));
+                const data = labels.map(l => instituteTime[l]);
+                const colours = labels.map(instituteColour);
+
+                // Redraw only when something changed (no flicker on every click)
+                const signature = JSON.stringify([labels, data, colours]);
+                if (signature === selectedChartSignature && (selectedChart || labels.length === 0)) return;
+                selectedChartSignature = signature;
+
+                if (selectedChart) {
+                    selectedChart.destroy();
+                    selectedChart = null;
+                }
+
+                const wrap = document.getElementById('selectedChartWrap');
+                const empty = document.getElementById('selectedChartEmpty');
+                if (labels.length === 0) {
+                    wrap.hidden = true;
+                    empty.hidden = false;
+                    empty.textContent = selectedIds.size === 0
+                        ? 'Tick projects in the tables above to see their time distribution.'
+                        : 'None of the selected projects matches the current category and date filter.';
+                    return;
+                }
+                empty.hidden = true;
+                wrap.hidden = false;
+
+                selectedChart = new Chart(document.getElementById('selectedChart').getContext('2d'), {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colours
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.raw;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = total ? Math.round((value / total) * 100) : 0;
+                                        return `${context.label}: ${formatTime(value)} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
             }
             
             // Add a new project (its id is assigned by the database: no duplicates between computers)

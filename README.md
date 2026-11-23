@@ -6,7 +6,7 @@ It allows you to:
 - Track active and finished projects
 - Assign researchers and engineers
 - Record time automatically with a timer or manually
-- Visualize project distribution with charts
+- Visualize project distribution with charts, including the time distribution of the projects ticked in the tables, and a "started on or after" date filter for all charts
 - Export / import the data as JSON
 
 Version 2 stores the data in a **MariaDB (SQL) database** instead of JSON files, so several engineers can
