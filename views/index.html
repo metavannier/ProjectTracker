@@ -710,11 +710,72 @@
             color: #2c3e50;
         }
 
-        .chart-filter input[type="date"] {
-            padding: 8px 10px;
+        .date-field {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .date-field input[type="text"] {
+            width: 130px;
+            padding: 8px 36px 8px 10px;
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 14px;
+        }
+
+        .date-field input[type="text"].invalid {
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2);
+        }
+
+        .date-field .date-picker-btn {
+            position: absolute;
+            right: 2px;
+            padding: 4px 6px;
+            background: none;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        /* Native calendar, only used to pick a date (its own display format varies by browser) */
+        .date-field .date-picker-native {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            border: 0;
+            padding: 0;
+            pointer-events: none;
+        }
+
+        .excel-btn {
+            background: #217346;
+            color: white;
+        }
+
+        .excel-btn:hover {
+            background: #185c37;
+        }
+
+        .chart-actions {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin: -5px 0 12px;
+        }
+
+        .chart-download-btn {
+            padding: 4px 10px;
+            background: #ecf0f1;
+            color: #2c3e50;
+            font-size: 12px;
+        }
+
+        .chart-download-btn:hover {
+            background: #dfe6e9;
         }
 
         .chart-filter-info {
@@ -893,22 +954,39 @@
                 
                 <div class="chart-filter">
                     <label for="chartStartDate">Charts: projects started on or after</label>
-                    <input type="date" id="chartStartDate">
+                    <span class="date-field">
+                        <input type="text" id="chartStartDate" placeholder="DD/MM/YYYY" inputmode="numeric" maxlength="10" autocomplete="off">
+                        <button type="button" class="date-picker-btn" id="chartStartDatePickerBtn" title="Choose a date in a calendar" aria-label="Choose a date in a calendar">&#128197;</button>
+                        <input type="date" class="date-picker-native" id="chartStartDatePicker" tabindex="-1" aria-hidden="true">
+                    </span>
                     <button type="button" class="cancel-btn" id="chartStartDateClear">Show all projects</button>
+                    <button type="button" class="excel-btn" id="excelExportBtn" title="Download the projects matching the date filter, grouped by institute">&#11015; Excel (projects by institute)</button>
                     <span class="chart-filter-info" id="chartFilterInfo"></span>
                 </div>
 
                 <div class="charts-container" style="margin-top: 20px">
                     <div class="chart-box">
                         <h3 class="chart-title" id="timeChartTitle">Time Distribution by Institute (All Categories)</h3>
+                        <div class="chart-actions">
+                            <button type="button" class="chart-download-btn" data-chart="time" data-format="png" title="Download this chart as a PNG image">&#11015; PNG</button>
+                            <button type="button" class="chart-download-btn" data-chart="time" data-format="pdf" title="Download this chart as a PDF document">&#11015; PDF</button>
+                        </div>
                         <canvas id="timeChart"></canvas>
                     </div>
                     <div class="chart-box">
                         <h3 class="chart-title" id="projectsChartTitle">Projects by Institute (All Categories)</h3>
+                        <div class="chart-actions">
+                            <button type="button" class="chart-download-btn" data-chart="projects" data-format="png" title="Download this chart as a PNG image">&#11015; PNG</button>
+                            <button type="button" class="chart-download-btn" data-chart="projects" data-format="pdf" title="Download this chart as a PDF document">&#11015; PDF</button>
+                        </div>
                         <canvas id="projectsChart"></canvas>
                     </div>
                     <div class="chart-box chart-box-wide">
                         <h3 class="chart-title" id="selectedChartTitle">Time Distribution by Institute for Selected Projects</h3>
+                        <div class="chart-actions">
+                            <button type="button" class="chart-download-btn" data-chart="selected" data-format="png" title="Download this chart as a PNG image">&#11015; PNG</button>
+                            <button type="button" class="chart-download-btn" data-chart="selected" data-format="pdf" title="Download this chart as a PDF document">&#11015; PDF</button>
+                        </div>
                         <p class="chart-empty" id="selectedChartEmpty">Tick projects in the tables above to see their time distribution.</p>
                         <div class="chart-canvas" id="selectedChartWrap" hidden>
                             <canvas id="selectedChart"></canvas>
@@ -991,6 +1069,8 @@
             const projectsChartTitle = document.getElementById('projectsChartTitle');
             const selectedChartTitle = document.getElementById('selectedChartTitle');
             const chartStartDate = document.getElementById('chartStartDate');
+            const chartStartDatePicker = document.getElementById('chartStartDatePicker');
+            let chartFromIso = '';   // date filter of the charts, "YYYY-MM-DD" ('' = all projects)
             const chartFilterInfo = document.getElementById('chartFilterInfo');
             const importBtn       = document.getElementById('importBtn');
             const importFileInput = document.getElementById('importFileInput');
@@ -1087,12 +1167,27 @@
                 deleteSelectedFinishedBtn.addEventListener('click', deleteSelectedFinishedProjects);
                 deselectAllFinishedBtn.addEventListener('click', deselectAllFinished);
 
-                // Date filter of the charts (empty = all projects)
-                chartStartDate.addEventListener('change', renderCharts);
+                // Date filter of the charts, typed as DD/MM/YYYY (empty = all projects)
+                chartStartDate.addEventListener('input', () => applyChartDateText(false));
+                chartStartDate.addEventListener('change', () => applyChartDateText(true));
+                chartStartDate.addEventListener('keydown', e => { if (e.key === 'Enter') applyChartDateText(true); });
+                document.getElementById('chartStartDatePickerBtn').addEventListener('click', openChartDatePicker);
+                chartStartDatePicker.addEventListener('change', () => {
+                    if (!chartStartDatePicker.value) return;
+                    chartStartDate.value = displayDate(chartStartDatePicker.value);
+                    applyChartDateText(true);
+                });
                 document.getElementById('chartStartDateClear').addEventListener('click', () => {
                     chartStartDate.value = '';
-                    renderCharts();
+                    applyChartDateText(true);
                 });
+
+                // Downloads: each chart (PNG / PDF) and the Excel file
+                document.querySelector('.charts-container').addEventListener('click', e => {
+                    const btn = e.target.closest('.chart-download-btn');
+                    if (btn) downloadChart(btn.dataset.chart, btn.dataset.format);
+                });
+                document.getElementById('excelExportBtn').addEventListener('click', exportExcel);
            
                 
                 // Navigation buttons
@@ -1992,7 +2087,7 @@
 
             // Projects used by the charts: current category + "started on or after" date
             function chartFilteredProjects() {
-                const from = chartStartDate.value;   // "YYYY-MM-DD" or '' (no filter)
+                const from = chartFromIso;   // "YYYY-MM-DD" or '' (no filter)
                 return projects.filter(p =>
                     (currentCategory === 'all' || p.category === currentCategory) &&
                     (!from || (isoDate(p.startDate) !== '' && isoDate(p.startDate) >= from))
@@ -2000,13 +2095,65 @@
             }
 
             function updateChartFilterInfo(chartProjects) {
-                if (!chartStartDate.value) {
+                if (chartStartDate.classList.contains('invalid')) {
+                    chartFilterInfo.textContent = 'Invalid date: please use the DD/MM/YYYY format (e.g. 26/09/2026). All projects are shown.';
+                    return;
+                }
+                if (!chartFromIso) {
                     chartFilterInfo.textContent = 'All projects are included.';
                     return;
                 }
-                const [y, m, d] = chartStartDate.value.split('-');
                 chartFilterInfo.textContent =
-                    `${chartProjects.length} project(s) with a Start Date on or after ${d}/${m}/${y}.`;
+                    `${chartProjects.length} project(s) with a Start Date on or after ${displayDate(chartFromIso)}.`;
+            }
+
+            // "YYYY-MM-DD" -> "DD/MM/YYYY"
+            function displayDate(iso) {
+                const [y, m, d] = iso.split('-');
+                return `${d}/${m}/${y}`;
+            }
+
+            // Date typed by the user: "26/09/2026" (also 26-09-2026, 26.09.2026, 26092026, 1/9/2026).
+            // Returns "YYYY-MM-DD", or null when it is not a valid date.
+            function parseUserDate(text) {
+                const t = text.trim();
+                const m = /^(\d{1,2})[\/.\-\s](\d{1,2})[\/.\-\s](\d{4})$/.exec(t) || /^(\d{2})(\d{2})(\d{4})$/.exec(t);
+                if (!m) return null;
+                const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+                const date = new Date(Date.UTC(y, mo - 1, d));
+                if (y < 1000 || date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null;
+                return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            }
+
+            // final = the user validated the field (Enter, leaving it, calendar, button);
+            // while typing, the filter is applied as soon as the date is complete
+            function applyChartDateText(final) {
+                const text = chartStartDate.value.trim();
+                const iso = text === '' ? '' : parseUserDate(text);
+                if (iso === null) {
+                    if (!final) return;                       // still typing
+                    chartStartDate.classList.add('invalid');
+                    chartFromIso = '';
+                    renderCharts();
+                    return;
+                }
+                chartStartDate.classList.remove('invalid');
+                if (final && iso) chartStartDate.value = displayDate(iso);   // shown as DD/MM/YYYY
+                if (iso !== chartFromIso) {
+                    chartFromIso = iso;
+                    renderCharts();
+                } else {
+                    updateChartFilterInfo(chartFilteredProjects());
+                }
+            }
+
+            function openChartDatePicker() {
+                chartStartDatePicker.value = chartFromIso;
+                try {
+                    chartStartDatePicker.showPicker();
+                } catch (e) {
+                    chartStartDate.focus();   // very old browser: type the date
+                }
             }
 
             // Same colour for an institute as in "Time Distribution by Institute"
@@ -2084,6 +2231,546 @@
                 });
             }
             
+            // ─── Downloads: charts (PNG / PDF) and Excel ───────────────────
+            // Everything is generated in the browser, without extra libraries.
+
+            function saveBlob(blob, filename) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+            }
+
+            function slug(text) {
+                return String(text).normalize('NFD').replace(/[̀-ͯ]/g, '')
+                    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+            }
+
+            function percentText(value, total) {
+                const pct = total ? (value / total) * 100 : 0;
+                return (pct > 0 && pct < 1 ? pct.toFixed(1) : String(Math.round(pct))) + '%';
+            }
+
+            // Filters applied, written out for the downloaded files
+            function filterDescription(projectCount, totalSeconds) {
+                const now = new Date();
+                const time = [now.getHours(), now.getMinutes()].map(n => String(n).padStart(2, '0')).join(':');
+                return [
+                    currentCategory === 'all' ? 'All categories' : `Category: ${currentCategory}`,
+                    chartFromIso ? `Start Date on or after ${displayDate(chartFromIso)}` : 'All start dates',
+                    `${projectCount} project(s)`,
+                    `Total time ${formatTime(totalSeconds)}`,
+                    `Exported ${todayString(now)} ${time}`,
+                ].join('  ·  ');
+            }
+
+            // Same data, order and colours as the chart on screen
+            function chartExportData(kind) {
+                let list = chartFilteredProjects();
+                if (kind === 'selected') {
+                    const ids = new Set([...selectedRows, ...selectedFinishedRows]);
+                    list = list.filter(p => ids.has(String(p.id)));
+                }
+                const groups = new Map();
+                list.forEach(p => {
+                    const g = groups.get(p.institute) || { seconds: 0, count: 0 };
+                    g.seconds += parseTimeString(p.totalHours);
+                    g.count += 1;
+                    groups.set(p.institute, g);
+                });
+                const labels = [...groups.keys()].sort((a, b) =>
+                    chartInstituteOrder.indexOf(a) - chartInstituteOrder.indexOf(b));
+                const byCount = kind === 'projects';
+                const titles = { time: timeChartTitle, projects: projectsChartTitle, selected: selectedChartTitle };
+                return {
+                    kind,
+                    byCount,
+                    title: titles[kind].textContent,
+                    labels,
+                    seconds: labels.map(l => groups.get(l).seconds),
+                    counts: labels.map(l => groups.get(l).count),
+                    values: labels.map(l => byCount ? groups.get(l).count : groups.get(l).seconds),
+                    colours: labels.map(instituteColour),
+                    projectCount: list.length,
+                };
+            }
+
+            // Text written on each slice: hours and percentage
+            function sliceText(d, i) {
+                const total = d.values.reduce((a, b) => a + b, 0);
+                const pct = percentText(d.values[i], total);
+                if (d.byCount) {
+                    return [`${d.counts[i]} project${d.counts[i] > 1 ? 's' : ''} · ${pct}`, formatTime(d.seconds[i])];
+                }
+                return [formatTime(d.seconds[i]), pct];
+            }
+
+            const EXPORT_FONT = '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+
+            // Chart.js plugin drawing the values on the slices (or next to the small ones)
+            function sliceLabelsPlugin(d) {
+                return {
+                    id: 'sliceLabels',
+                    afterDatasetsDraw(chart) {
+                        const ctx = chart.ctx;
+                        const lineHeight = 18;
+                        const outside = [];
+                        ctx.save();
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        chart.getDatasetMeta(0).data.forEach((arc, i) => {
+                            if (!d.values[i]) return;
+                            const lines = sliceText(d, i);
+                            const { x, y, startAngle, endAngle, innerRadius, outerRadius } =
+                                arc.getProps(['x', 'y', 'startAngle', 'endAngle', 'innerRadius', 'outerRadius'], true);
+                            const mid = (startAngle + endAngle) / 2;
+                            const r = innerRadius > 0 ? (innerRadius + outerRadius) / 2 : outerRadius * 0.62;
+                            ctx.font = `bold 15px ${EXPORT_FONT}`;
+                            const width = Math.max(...lines.map(l => ctx.measureText(l).width));
+                            const fits = (endAngle - startAngle) * r > width + 12
+                                && (endAngle - startAngle) > 0.45
+                                && outerRadius - innerRadius > lines.length * lineHeight + 8;
+                            if (fits) {
+                                const cx = x + Math.cos(mid) * r;
+                                const cy = y + Math.sin(mid) * r;
+                                ctx.fillStyle = '#ffffff';
+                                ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+                                ctx.shadowBlur = 3;
+                                lines.forEach((line, k) => ctx.fillText(line, cx, cy + (k - (lines.length - 1) / 2) * lineHeight));
+                                ctx.shadowBlur = 0;
+                            } else {
+                                outside.push({ lines, mid, x, y, outerRadius });
+                            }
+                        });
+
+                        // Small slices: label outside with a leader line, without overlaps
+                        ctx.font = `bold 14px ${EXPORT_FONT}`;
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.strokeStyle = '#7f8c8d';
+                        ctx.lineWidth = 1;
+                        [true, false].forEach(rightSide => {
+                            const items = outside
+                                .filter(o => (Math.cos(o.mid) >= 0) === rightSide)
+                                .map(o => ({ ...o, ty: o.y + Math.sin(o.mid) * (o.outerRadius + 22), h: o.lines.length * lineHeight }))
+                                .sort((a, b) => a.ty - b.ty);
+                            let bottom = -Infinity;
+                            items.forEach(o => {
+                                o.ty = Math.max(o.ty, bottom + 6 + o.h / 2);
+                                bottom = o.ty + o.h / 2;
+                            });
+                            items.forEach(o => {
+                                const ex = o.x + Math.cos(o.mid) * o.outerRadius;
+                                const ey = o.y + Math.sin(o.mid) * o.outerRadius;
+                                const ox = o.x + Math.cos(o.mid) * (o.outerRadius + 14);
+                                const tx = o.x + (rightSide ? 1 : -1) * (o.outerRadius + 30);
+                                ctx.beginPath();
+                                ctx.moveTo(ex, ey);
+                                ctx.lineTo(ox, o.ty);
+                                ctx.lineTo(tx, o.ty);
+                                ctx.stroke();
+                                ctx.textAlign = rightSide ? 'left' : 'right';
+                                o.lines.forEach((line, k) =>
+                                    ctx.fillText(line, tx + (rightSide ? 5 : -5), o.ty + (k - (o.lines.length - 1) / 2) * lineHeight));
+                            });
+                        });
+                        ctx.restore();
+                    }
+                };
+            }
+
+            // Draws the downloadable image: title, filters, chart with values, table
+            function renderChartImage(d) {
+                const SCALE = 2;                       // double resolution: sharp when printed
+                const pieW = 860, pieH = 720, top = 120, rowH = 34;
+                const tableX = 40 + pieW + 30, tableW = 520;
+                const W = tableX + tableW + 40;
+                const H = Math.max(top + pieH, top + 40 + (d.labels.length + 2) * rowH + 40) + 50;
+                const canvas = document.createElement('canvas');
+                canvas.width = W * SCALE;
+                canvas.height = H * SCALE;
+                const ctx = canvas.getContext('2d');
+                ctx.scale(SCALE, SCALE);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, W, H);
+
+                const totalSeconds = d.seconds.reduce((a, b) => a + b, 0);
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = `bold 30px ${EXPORT_FONT}`;
+                ctx.fillText(d.title, W / 2, 55);
+                ctx.fillStyle = '#7f8c8d';
+                ctx.font = `16px ${EXPORT_FONT}`;
+                ctx.fillText(filterDescription(d.projectCount, totalSeconds), W / 2, 88);
+
+                // The chart itself, drawn by Chart.js on a separate canvas
+                const pieCanvas = document.createElement('canvas');
+                pieCanvas.width = pieW;
+                pieCanvas.height = pieH;
+                const pie = new Chart(pieCanvas, {
+                    type: d.kind === 'projects' ? 'doughnut' : 'pie',
+                    data: {
+                        labels: d.labels,
+                        datasets: [{ data: d.values, backgroundColor: d.colours, borderColor: '#ffffff', borderWidth: 2 }]
+                    },
+                    options: {
+                        responsive: false,
+                        animation: false,
+                        devicePixelRatio: SCALE,
+                        layout: { padding: { left: 170, right: 170, top: 60, bottom: 60 } },
+                        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                    },
+                    plugins: [sliceLabelsPlugin(d)]
+                });
+                ctx.drawImage(pieCanvas, 40, top, pieW, pieH);
+                pie.destroy();
+
+                // Table: one line per institute
+                const total = d.values.reduce((a, b) => a + b, 0);
+                const columns = d.byCount
+                    ? [['Institute', 0, 'left'], ['Projects', 300, 'right'], ['%', 370, 'right'], ['Hours', tableW, 'right']]
+                    : [['Institute', 0, 'left'], ['Hours', 400, 'right'], ['%', tableW, 'right']];
+                const rows = d.labels.map((label, i) => d.byCount
+                    ? [label, String(d.counts[i]), percentText(d.counts[i], total), formatTime(d.seconds[i])]
+                    : [label, formatTime(d.seconds[i]), percentText(d.seconds[i], total)]);
+                const totalRow = d.byCount
+                    ? ['Total', String(total), '100%', formatTime(totalSeconds)]
+                    : ['Total', formatTime(totalSeconds), '100%'];
+                let y = top + 40;
+                const drawRow = (cells, style, swatch) => {
+                    ctx.font = `${style === 'normal' ? '' : 'bold '}16px ${EXPORT_FONT}`;
+                    ctx.fillStyle = style === 'header' ? '#7f8c8d' : '#2c3e50';
+                    columns.forEach(([, x, align], c) => {
+                        ctx.textAlign = align;
+                        let text = cells[c];
+                        const left = tableX + x + (c === 0 && swatch ? 26 : 0);
+                        if (c === 0) {
+                            while (ctx.measureText(text).width > 250 && text.length > 3) text = text.slice(0, -2) + '…';
+                        }
+                        ctx.fillText(text, c === 0 ? left : tableX + x, y);
+                    });
+                    if (swatch) {
+                        ctx.fillStyle = swatch;
+                        ctx.fillRect(tableX, y - 13, 18, 18);
+                    }
+                    ctx.strokeStyle = '#ecf0f1';
+                    ctx.beginPath();
+                    ctx.moveTo(tableX, y + 12);
+                    ctx.lineTo(tableX + tableW, y + 12);
+                    ctx.stroke();
+                    y += rowH;
+                };
+                ctx.textBaseline = 'alphabetic';
+                drawRow(columns.map(c => c[0]), 'header');
+                rows.forEach((cells, i) => drawRow(cells, 'normal', d.colours[i]));
+                drawRow(totalRow, 'total');
+
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#bdc3c7';
+                ctx.font = `13px ${EXPORT_FONT}`;
+                ctx.fillText('Project Time Tracker', 40, H - 20);
+                return canvas;
+            }
+
+            // One-page PDF (A4 landscape) containing the image
+            function pdfFromJpeg(jpeg, width, height) {
+                const pageW = 841.89, pageH = 595.28, margin = 24;
+                const scale = Math.min((pageW - 2 * margin) / width, (pageH - 2 * margin) / height);
+                const w = width * scale, h = height * scale;
+                const x = (pageW - w) / 2, y = (pageH - h) / 2;
+                const enc = new TextEncoder();
+                const parts = [], offsets = [];
+                let length = 0;
+                const add = chunk => {
+                    const bytes = typeof chunk === 'string' ? enc.encode(chunk) : chunk;
+                    parts.push(bytes);
+                    length += bytes.length;
+                };
+                const obj = (n, dict, stream) => {
+                    offsets[n] = length;
+                    add(`${n} 0 obj\n${dict}\n`);
+                    if (stream !== undefined) {
+                        add('stream\n');
+                        add(stream);
+                        add('\nendstream\n');
+                    }
+                    add('endobj\n');
+                };
+                const content = `q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im0 Do Q`;
+                add('%PDF-1.4\n');
+                obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+                obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+                obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+                obj(4, `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>`, jpeg);
+                obj(5, `<< /Length ${content.length} >>`, content);
+                const xref = length;
+                add('xref\n0 6\n0000000000 65535 f \n'
+                    + offsets.slice(1).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join(''));
+                add(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+                return new Blob(parts, { type: 'application/pdf' });
+            }
+
+            async function downloadChart(kind, format) {
+                if (typeof Chart === 'undefined') {
+                    showNotification('The chart library could not be loaded', 'error');
+                    return;
+                }
+                const d = chartExportData(kind);
+                if (d.labels.length === 0) {
+                    showNotification(kind === 'selected'
+                        ? 'Tick projects in the tables first'
+                        : 'No project matches the current filters', 'error');
+                    return;
+                }
+                const canvas = renderChartImage(d);
+                const name = slug(d.title) + (chartFromIso ? `_from-${chartFromIso}` : '');
+                if (format === 'pdf') {
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                    const binary = atob(dataUrl.split(',')[1]);
+                    const jpeg = Uint8Array.from(binary, c => c.charCodeAt(0));
+                    saveBlob(pdfFromJpeg(jpeg, canvas.width, canvas.height), name + '.pdf');
+                } else {
+                    canvas.toBlob(blob => saveBlob(blob, name + '.png'), 'image/png');
+                }
+            }
+
+            // ─── Excel (.xlsx) ─────────────────────────────────────────────
+
+            const CRC_TABLE = (() => {
+                const table = new Uint32Array(256);
+                for (let n = 0; n < 256; n++) {
+                    let c = n;
+                    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+                    table[n] = c >>> 0;
+                }
+                return table;
+            })();
+
+            function crc32(bytes) {
+                let crc = 0xFFFFFFFF;
+                for (let i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+                return (crc ^ 0xFFFFFFFF) >>> 0;
+            }
+
+            // ZIP archive (no compression), which is what an .xlsx file is
+            function zipFiles(files, mimeType) {
+                const enc = new TextEncoder();
+                const u16 = v => [v & 0xFF, (v >>> 8) & 0xFF];
+                const u32 = v => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+                const now = new Date();
+                const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+                const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+                const local = [], central = [];
+                let offset = 0;
+                files.forEach(file => {
+                    const name = enc.encode(file.name);
+                    const data = enc.encode(file.data);
+                    const crc = crc32(data);
+                    const common = [...u16(20), ...u16(0x0800), ...u16(0), ...u16(dosTime), ...u16(dosDate),
+                        ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)];
+                    const header = new Uint8Array([0x50, 0x4B, 0x03, 0x04, ...common]);
+                    local.push(header, name, data);
+                    central.push(new Uint8Array([0x50, 0x4B, 0x01, 0x02, ...u16(20), ...common,
+                        ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), name);
+                    offset += header.length + name.length + data.length;
+                });
+                const centralSize = central.reduce((a, c) => a + c.length, 0);
+                const end = new Uint8Array([0x50, 0x4B, 0x05, 0x06, ...u16(0), ...u16(0), ...u16(files.length),
+                    ...u16(files.length), ...u32(centralSize), ...u32(offset), ...u16(0)]);
+                return new Blob([...local, ...central, end], { type: mimeType });
+            }
+
+            function xmlText(value) {
+                return String(value ?? '')
+                    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+                    .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+            }
+
+            function columnName(index) {
+                let name = '';
+                for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+                    name = String.fromCharCode(65 + ((n - 1) % 26)) + name;
+                }
+                return name;
+            }
+
+            // "DD/MM/YYYY" -> Excel date number (days since 30/12/1899), or null
+            function excelDate(ddmmyyyy) {
+                const iso = isoDate(ddmmyyyy);
+                if (!iso) return null;
+                const [y, m, d] = iso.split('-').map(Number);
+                return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000;
+            }
+
+            // Cell styles (index in styles.xml)
+            const XL = { text: 0, title: 1, header: 2, group: 3, date: 4, duration: 5, decimal: 6,
+                         bold: 7, boldDuration: 8, boldDecimal: 9, percent: 10, boldPercent: 11 };
+
+            const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="3"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="[h]:mm:ss"/><numFmt numFmtId="166" formatCode="0.0%"/></numFmts>
+<fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts>
+<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF34495E"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF4FC"/><bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="12">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="2" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="165" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+<xf numFmtId="2" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="166" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+            // rows: [{ cells: [ {v, s, f} | null ], level }]; numbers are written as numbers
+            function sheetXml(rows, widths, frozenRows) {
+                const body = rows.map((row, r) => {
+                    const cells = row.cells.map((cell, c) => {
+                        if (!cell) return '';
+                        const ref = columnName(c) + (r + 1);
+                        const style = cell.s ? ` s="${cell.s}"` : '';
+                        if (cell.f) return `<c r="${ref}"${style}><f>${xmlText(cell.f)}</f><v>${cell.v}</v></c>`;
+                        if (typeof cell.v === 'number') return `<c r="${ref}"${style}><v>${cell.v}</v></c>`;
+                        if (cell.v === undefined || cell.v === null || cell.v === '') return `<c r="${ref}"${style}/>`;
+                        return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlText(cell.v)}</t></is></c>`;
+                    }).join('');
+                    const level = row.level ? ` outlineLevel="${row.level}"` : '';
+                    return `<row r="${r + 1}"${level}>${cells}</row>`;
+                }).join('');
+                const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+                return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetPr><outlinePr summaryBelow="1"/><pageSetUpPr fitToPage="1"/></sheetPr>
+<sheetViews><sheetView workbookViewId="0"><pane ySplit="${frozenRows}" topLeftCell="A${frozenRows + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<sheetFormatPr defaultRowHeight="15" outlineLevelRow="1"/>
+<cols>${cols}</cols>
+<sheetData>${body}</sheetData>
+<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>
+<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+</worksheet>`;
+            }
+
+            // Workbook: "Projects by institute" (grouped, with subtotals) + "Summary by institute".
+            // "Last Update" is intentionally not exported.
+            function buildProjectsWorkbook(list) {
+                const groups = new Map();
+                list.forEach(p => {
+                    if (!groups.has(p.institute)) groups.set(p.institute, []);
+                    groups.get(p.institute).push(p);
+                });
+                const institutes = [...groups.keys()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+                const totalSeconds = list.reduce((a, p) => a + parseTimeString(p.totalHours), 0);
+                const description = filterDescription(list.length, totalSeconds);
+
+                const headers = ['Institute', 'Project Title', 'Researchers', 'Engineers', 'Category', 'Status',
+                    'Submission Date', 'Start Date', 'End Date', 'Total Hours', 'Hours (decimal)'];
+                const J = 9, K = 10;   // columns of Total Hours / Hours (decimal)
+                const rows = [
+                    { cells: [{ v: 'Project Time Tracker — Projects by institute', s: XL.title }] },
+                    { cells: [{ v: description }] },
+                    { cells: [] },
+                    { cells: headers.map(h => ({ v: h, s: XL.header })) },
+                ];
+                const subtotalRows = [];
+                institutes.forEach(institute => {
+                    const items = groups.get(institute).slice().sort((a, b) =>
+                        (isoDate(a.startDate) || '9999').localeCompare(isoDate(b.startDate) || '9999')
+                        || a.title.localeCompare(b.title));
+                    const seconds = items.reduce((a, p) => a + parseTimeString(p.totalHours), 0);
+                    rows.push({ cells: headers.map((_, c) => ({ v: c === 0 ? `${institute} — ${items.length} project(s)` : '', s: XL.group })) });
+                    const first = rows.length + 1;
+                    items.forEach(p => {
+                        const s = parseTimeString(p.totalHours);
+                        const date = v => { const n = excelDate(v); return n === null ? { v: '' } : { v: n, s: XL.date }; };
+                        rows.push({ level: 1, cells: [
+                            { v: p.institute }, { v: p.title }, { v: p.researchers.join(', ') }, { v: p.engineers.join(', ') },
+                            { v: p.category }, { v: p.status === 'finished' ? 'Finished' : 'Active' },
+                            date(p.submissionDate), date(p.startDate), date(p.endDate),
+                            { v: s / 86400, s: XL.duration }, { v: s / 3600, s: XL.decimal },
+                        ] });
+                    });
+                    const last = rows.length;
+                    const cells = [{ v: `Total ${institute}`, s: XL.bold }, { v: `${items.length} project(s)`, s: XL.bold }];
+                    cells[J] = { v: seconds / 86400, f: `SUBTOTAL(9,${columnName(J)}${first}:${columnName(J)}${last})`, s: XL.boldDuration };
+                    cells[K] = { v: seconds / 3600, f: `SUBTOTAL(9,${columnName(K)}${first}:${columnName(K)}${last})`, s: XL.boldDecimal };
+                    rows.push({ cells });
+                    subtotalRows.push(rows.length);
+                    rows.push({ cells: [] });
+                });
+                const grand = [{ v: 'TOTAL (all institutes)', s: XL.bold }, { v: `${list.length} project(s)`, s: XL.bold }];
+                grand[J] = { v: totalSeconds / 86400, f: `SUBTOTAL(9,${columnName(J)}5:${columnName(J)}${rows.length})`, s: XL.boldDuration };
+                grand[K] = { v: totalSeconds / 3600, f: `SUBTOTAL(9,${columnName(K)}5:${columnName(K)}${rows.length})`, s: XL.boldDecimal };
+                rows.push({ cells: grand });
+
+                // Summary sheet
+                const summary = [
+                    { cells: [{ v: 'Project Time Tracker — Summary by institute', s: XL.title }] },
+                    { cells: [{ v: description }] },
+                    { cells: [] },
+                    { cells: ['Institute', 'Projects', 'Total Hours', 'Hours (decimal)', '% of total time'].map(h => ({ v: h, s: XL.header })) },
+                ];
+                institutes.forEach(institute => {
+                    const seconds = groups.get(institute).reduce((a, p) => a + parseTimeString(p.totalHours), 0);
+                    summary.push({ cells: [
+                        { v: institute }, { v: groups.get(institute).length },
+                        { v: seconds / 86400, s: XL.duration }, { v: seconds / 3600, s: XL.decimal },
+                        { v: totalSeconds ? seconds / totalSeconds : 0, s: XL.percent },
+                    ] });
+                });
+                const n = summary.length;
+                summary.push({ cells: [
+                    { v: 'TOTAL', s: XL.bold },
+                    { v: list.length, f: `SUM(B5:B${n})`, s: XL.bold },
+                    { v: totalSeconds / 86400, f: `SUM(C5:C${n})`, s: XL.boldDuration },
+                    { v: totalSeconds / 3600, f: `SUM(D5:D${n})`, s: XL.boldDecimal },
+                    { v: totalSeconds ? 1 : 0, f: `SUM(E5:E${n})`, s: XL.boldPercent },
+                ] });
+
+                const sheets = [
+                    { name: 'Projects by institute', xml: sheetXml(rows, [24, 55, 32, 32, 22, 10, 16, 12, 12, 13, 16], 4) },
+                    { name: 'Summary by institute', xml: sheetXml(summary, [28, 10, 14, 16, 16], 4) },
+                ];
+                const ns = 'http://schemas.openxmlformats.org';
+                return zipFiles([
+                    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="${ns}/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+                    { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${ns}/package/2006/relationships"><Relationship Id="rId1" Type="${ns}/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+                    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="${ns}/spreadsheetml/2006/main" xmlns:r="${ns}/officeDocument/2006/relationships"><sheets>${sheets.map((sh, i) => `<sheet name="${xmlText(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>` },
+                    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${ns}/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${ns}/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="${ns}/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+                    { name: 'xl/styles.xml', data: XLSX_STYLES },
+                    ...sheets.map((sh, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sh.xml })),
+                ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            }
+
+            // Projects matching the date filter (and the selected category), grouped by institute
+            async function exportExcel() {
+                await refreshProjects();   // export the latest data saved on the server
+                const list = chartFilteredProjects();
+                if (list.length === 0) {
+                    showNotification('No project matches the date filter', 'error');
+                    return;
+                }
+                const name = 'projects-by-institute'
+                    + (currentCategory !== 'all' ? '_' + slug(currentCategory) : '')
+                    + (chartFromIso ? `_from-${chartFromIso}` : '') + '.xlsx';
+                saveBlob(buildProjectsWorkbook(list), name);
+                showNotification(`${list.length} project(s) exported to Excel`);
+            }
+
             // Add a new project (its id is assigned by the database: no duplicates between computers)
             async function addProject() {
                 const title = document.getElementById('projectTitle').value.trim();
@@ -2311,6 +2998,7 @@
             }
             
             // Show notification
+            let notificationTimer = null;
             function showNotification(message, type = 'success') {
                 notification.textContent = message;
                 notification.style.display = 'block';
@@ -2321,7 +3009,9 @@
                     notification.style.background = '#2ecc71';
                 }
                 
-                setTimeout(function() {
+                // Each message stays 3 s (an older message's timer must not hide a newer one)
+                clearTimeout(notificationTimer);
+                notificationTimer = setTimeout(function() {
                     notification.style.display = 'none';
                 }, 3000);
             }

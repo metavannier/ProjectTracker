@@ -6,7 +6,9 @@ It allows you to:
 - Track active and finished projects
 - Assign researchers and engineers
 - Record time automatically with a timer or manually
-- Visualize project distribution with charts, including the time distribution of the projects ticked in the tables, and a "started on or after" date filter for all charts
+- Visualize project distribution with charts, including the time distribution of the projects ticked in the tables, and a "started on or after" date filter (DD/MM/YYYY) for all charts
+- Download each chart as PNG or PDF (hours and percentages written on the chart, plus a summary table)
+- Download the projects matching the date filter as an Excel file, grouped by institute with subtotals and a summary sheet
 - Export / import the data as JSON
 
 Version 2 stores the data in a **MariaDB (SQL) database** instead of JSON files, so several engineers can
